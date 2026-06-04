@@ -3,6 +3,8 @@ import { generateListing } from "@/lib/openai/client";
 import { handleApiError, parseJsonBody, ApiError } from "@/lib/api-utils";
 import type { ProductAnalysis } from "@/types";
 
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   try {
     const body = await parseJsonBody<{
