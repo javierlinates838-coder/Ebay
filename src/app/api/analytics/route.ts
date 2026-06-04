@@ -1,25 +1,20 @@
 import { handleApiError } from "@/lib/api-utils";
-import { createClient } from "@/lib/supabase/server";
+import { getInventoryClient, DEMO_USER_ID } from "@/lib/supabase/server";
 import type { AnalyticsSummary, Listing } from "@/types";
-
-const DEMO_USER_ID = "demo-user";
 
 export async function GET() {
   try {
-    const userId = DEMO_USER_ID;
+    const supabase = getInventoryClient();
 
-    try {
-      const supabase = await createClient();
-      const { data: listings } = await supabase
+    if (supabase) {
+      const { data: listings, error } = await supabase
         .from("listings")
         .select("*")
-        .eq("user_id", userId);
+        .eq("user_id", DEMO_USER_ID);
 
-      if (listings) {
+      if (!error && listings?.length) {
         return Response.json({ analytics: computeAnalytics(listings as Listing[]) });
       }
-    } catch {
-      // Fall through
     }
 
     return Response.json({ analytics: getDemoAnalytics() });

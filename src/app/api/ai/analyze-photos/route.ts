@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { analyzeProductPhotos } from "@/lib/openai/client";
+import { analyzeProductPhotos } from "@/lib/ai/client";
 import { handleApiError, parseJsonBody, ApiError } from "@/lib/api-utils";
 
 export const maxDuration = 60;

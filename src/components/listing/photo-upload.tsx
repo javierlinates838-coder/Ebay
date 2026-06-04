@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { enhancePhotoClientSide } from "@/lib/photoroom/client";
+import { compressImageFile } from "@/lib/image-compress";
 
 interface PhotoUploadProps {
   photos: string[];
@@ -33,14 +34,7 @@ export function PhotoUpload({
       const toProcess = Array.from(files).slice(0, remaining);
 
       const urls = await Promise.all(
-        toProcess.map(
-          (file) =>
-            new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(reader.result as string);
-              reader.readAsDataURL(file);
-            })
-        )
+        toProcess.map((file) => compressImageFile(file))
       );
 
       onAdd(urls);

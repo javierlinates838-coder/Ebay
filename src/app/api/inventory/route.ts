@@ -1,18 +1,22 @@
 import { NextRequest } from "next/server";
 import { handleApiError, parseJsonBody, ApiError } from "@/lib/api-utils";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getInventoryClient, DEMO_USER_ID } from "@/lib/supabase/server";
 import type { Listing, ListingStatus } from "@/types";
-
-const DEMO_USER_ID = "demo-user";
 
 async function getUserId(): Promise<string> {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     return user?.id || DEMO_USER_ID;
   } catch {
     return DEMO_USER_ID;
   }
+}
+
+function getDbClient() {
+  return getInventoryClient();
 }
 
 export async function GET(request: NextRequest) {
@@ -25,9 +29,9 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
 
     const userId = await getUserId();
+    const supabase = getDbClient();
 
-    try {
-      const supabase = await createClient();
+    if (supabase) {
       let query = supabase
         .from("listings")
         .select("*", { count: "exact" })
@@ -43,8 +47,10 @@ export async function GET(request: NextRequest) {
       if (!error && data) {
         return Response.json({ listings: data, total: count, page, limit });
       }
-    } catch {
-      // Fall through to empty response
+
+      if (error) {
+        console.warn("[Inventory] Supabase read failed:", error.message);
+      }
     }
 
     return Response.json({ listings: [], total: 0, page, limit });
@@ -77,8 +83,9 @@ export async function POST(request: NextRequest) {
       item_specifics: body.item_specifics,
     };
 
-    try {
-      const supabase = await createClient();
+    const supabase = getDbClient();
+
+    if (supabase) {
       const { data, error } = await supabase
         .from("listings")
         .insert(listing)
@@ -88,8 +95,10 @@ export async function POST(request: NextRequest) {
       if (!error && data) {
         return Response.json({ listing: data }, { status: 201 });
       }
-    } catch {
-      // Fall through
+
+      if (error) {
+        console.warn("[Inventory] Supabase insert failed:", error.message);
+      }
     }
 
     const mockListing: Listing = {
@@ -116,9 +125,9 @@ export async function PATCH(request: NextRequest) {
     }
 
     const { id, ...updates } = body;
+    const supabase = getDbClient();
 
-    try {
-      const supabase = await createClient();
+    if (supabase) {
       const { data, error } = await supabase
         .from("listings")
         .update(updates)
@@ -129,8 +138,10 @@ export async function PATCH(request: NextRequest) {
       if (!error && data) {
         return Response.json({ listing: data });
       }
-    } catch {
-      // Fall through
+
+      if (error) {
+        console.warn("[Inventory] Supabase update failed:", error.message);
+      }
     }
 
     return Response.json({ listing: { id, ...updates } });
@@ -148,11 +159,13 @@ export async function DELETE(request: NextRequest) {
       throw new ApiError("Listing ID is required", 400);
     }
 
-    try {
-      const supabase = await createClient();
-      await supabase.from("listings").delete().eq("id", id);
-    } catch {
-      // Fall through
+    const supabase = getDbClient();
+
+    if (supabase) {
+      const { error } = await supabase.from("listings").delete().eq("id", id);
+      if (error) {
+        console.warn("[Inventory] Supabase delete failed:", error.message);
+      }
     }
 
     return Response.json({ success: true });

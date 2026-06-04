@@ -1,10 +1,17 @@
 import { NextRequest } from "next/server";
-import { getEbayOAuthUrl, exchangeEbayCode } from "@/lib/ebay/client";
-import { handleApiError } from "@/lib/api-utils";
+import { getEbayOAuthUrl, exchangeEbayCode, isEbayConfigured } from "@/lib/ebay/client";
+import { handleApiError, ApiError } from "@/lib/api-utils";
 import { createClient } from "@/lib/supabase/server";
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
+    if (!isEbayConfigured() || !process.env.EBAY_REDIRECT_URI?.trim()) {
+      throw new ApiError(
+        "eBay OAuth is not configured. Add EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_ENV, and EBAY_REDIRECT_URI in Vercel environment variables.",
+        503
+      );
+    }
+
     const state = crypto.randomUUID();
     const url = getEbayOAuthUrl(state);
 

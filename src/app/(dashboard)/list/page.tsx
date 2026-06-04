@@ -13,6 +13,8 @@ import { toast } from "sonner";
 import { AppHeader } from "@/components/layout/app-nav";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { PhotoUpload } from "@/components/listing/photo-upload";
 import { ProductAnalysisCard } from "@/components/listing/product-analysis-card";
 import { MarketResearchCard } from "@/components/listing/market-research-card";
@@ -30,6 +32,7 @@ export default function NewListingPage() {
 
   const [shippingCost, setShippingCost] = useState(0);
   const [costOfGoods, setCostOfGoods] = useState(0);
+  const [marketQuery, setMarketQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
@@ -49,19 +52,27 @@ export default function NewListingPage() {
     try {
       await workflow.analyzePhotos();
       toast.success("Product identified!");
-    } catch {
-      toast.error("Analysis failed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Analysis failed");
     }
   };
 
   const handleMarketResearch = async () => {
     if (!state.analysis) return;
-    const query = `${state.analysis.brand} ${state.analysis.model} ${state.analysis.product}`.trim();
+    const query =
+      marketQuery.trim() ||
+      `${state.analysis.brand} ${state.analysis.model} ${state.analysis.product}`.trim();
+
+    if (!query) {
+      toast.error("Enter a search term for market research");
+      return;
+    }
+
     try {
       await workflow.researchMarket(query);
       toast.success("Market research complete");
-    } catch {
-      toast.error("Market research failed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Market research failed");
     }
   };
 
@@ -221,6 +232,21 @@ export default function NewListingPage() {
             {state.step === "analysis" && state.analysis && (
               <div className="space-y-6">
                 <ProductAnalysisCard analysis={state.analysis} />
+                <div className="space-y-2">
+                  <Label htmlFor="market-query">Market search term</Label>
+                  <Input
+                    id="market-query"
+                    placeholder={`e.g. ${state.analysis.brand} ${state.analysis.model}`}
+                    value={marketQuery}
+                    onChange={(e) => setMarketQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleMarketResearch();
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Search eBay sold comps. Works in demo mode without API keys.
+                  </p>
+                </div>
                 <div className="flex gap-3">
                   <Button variant="outline" onClick={() => setStep("photos")}>
                     <ArrowLeft className="mr-2 h-4 w-4" />

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ExternalLink, Link2, CheckCircle2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { AppHeader } from "@/components/layout/app-nav";
@@ -8,10 +9,55 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+interface AppConfig {
+  ai: boolean;
+  aiProvider: "gemini" | "openai" | null;
+  gemini: boolean;
+  openai: boolean;
+  ebay: boolean;
+  ebayBrowse: boolean;
+  photoroom: boolean;
+  supabase: boolean;
+  supabaseStorage: boolean;
+  demoMode: boolean;
+}
 
 export default function SettingsPage() {
+  return (
+    <Suspense fallback={<AppHeader title="Settings" />}>
+      <SettingsContent />
+    </Suspense>
+  );
+}
+
+function SettingsContent() {
+  const searchParams = useSearchParams();
   const [connecting, setConnecting] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [config, setConfig] = useState<AppConfig | null>(null);
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((res) => res.json())
+      .then(setConfig)
+      .catch(() => setConfig(null));
+  }, []);
+
+  useEffect(() => {
+    const ebayConnected = searchParams.get("ebay_connected");
+    const ebayError = searchParams.get("ebay_error");
+
+    if (ebayConnected === "true") {
+      setConnected(true);
+      toast.success("eBay account connected");
+    }
+
+    if (ebayError) {
+      toast.error(`eBay connection failed: ${ebayError.replace(/_/g, " ")}`);
+    }
+  }, [searchParams]);
 
   const handleConnectEbay = async () => {
     setConnecting(true);
@@ -23,7 +69,10 @@ export default function SettingsPage() {
         window.open(data.url, "_blank", "noopener,noreferrer");
         toast.info("Complete authorization in the eBay window");
       } else {
-        toast.error("eBay OAuth not configured. Add EBAY_CLIENT_ID to environment variables.");
+        toast.error(
+          data.error ||
+            "eBay OAuth not configured. Add EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_ENV, and EBAY_REDIRECT_URI in Vercel."
+        );
       }
     } catch {
       toast.error("Failed to start eBay connection");
@@ -33,10 +82,21 @@ export default function SettingsPage() {
   };
 
   const envStatus = [
-    { name: "OpenAI API", key: "OPENAI_API_KEY", configured: Boolean(process.env.NEXT_PUBLIC_HAS_OPENAI) },
-    { name: "eBay API", key: "EBAY_CLIENT_ID", configured: Boolean(process.env.NEXT_PUBLIC_HAS_EBAY) },
-    { name: "PhotoRoom API", key: "PHOTOROOM_API_KEY", configured: Boolean(process.env.NEXT_PUBLIC_HAS_PHOTOROOM) },
-    { name: "Supabase", key: "NEXT_PUBLIC_SUPABASE_URL", configured: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL) },
+    { name: "Google Gemini", key: "GEMINI_API_KEY", configured: config?.gemini ?? false },
+    { name: "OpenAI (optional)", key: "OPENAI_API_KEY", configured: config?.openai ?? false },
+    {
+      name: "Supabase URL + Anon Key",
+      key: "NEXT_PUBLIC_SUPABASE_URL + ANON_KEY",
+      configured: config?.supabase ?? false,
+    },
+    {
+      name: "Supabase Service Role (inventory)",
+      key: "SUPABASE_SERVICE_ROLE_KEY",
+      configured: config?.supabaseStorage ?? false,
+    },
+    { name: "eBay OAuth (optional)", key: "EBAY_CLIENT_ID + REDIRECT_URI", configured: config?.ebay ?? false },
+    { name: "eBay Market Search (optional)", key: "EBAY_CLIENT_ID + SECRET", configured: config?.ebayBrowse ?? false },
+    { name: "PhotoRoom (optional)", key: "PHOTOROOM_API_KEY", configured: config?.photoroom ?? false },
   ];
 
   return (
@@ -44,6 +104,23 @@ export default function SettingsPage() {
       <AppHeader title="Settings" />
       <main className="flex-1 p-4 sm:p-6">
         <div className="mx-auto max-w-2xl space-y-6">
+          {config?.demoMode && (
+            <Alert>
+              <AlertDescription>
+                eBay features are in demo mode — market search and publish use simulated data.
+                Add your Gemini key for real AI analysis and Supabase keys to save inventory to the cloud.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {config?.ai && config.aiProvider && (
+            <Alert>
+              <AlertDescription>
+                AI is active via {config.aiProvider === "gemini" ? "Google Gemini" : "OpenAI"}.
+              </AlertDescription>
+            </Alert>
+          )}
+
           <Card className="border-0 shadow-lg">
             <CardHeader>
               <CardTitle>eBay Account</CardTitle>
@@ -94,7 +171,7 @@ export default function SettingsPage() {
             <CardHeader>
               <CardTitle>API Configuration</CardTitle>
               <CardDescription>
-                Environment variables required for full functionality.
+                All keys are optional. The app works without them in demo mode.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -115,8 +192,8 @@ export default function SettingsPage() {
               </div>
               <Separator className="my-4" />
               <p className="text-xs text-muted-foreground">
-                Without API keys, the app runs in demo mode with mock AI analysis and market data.
-                Add keys to <code className="rounded bg-muted px-1">.env.local</code> for production use.
+                No eBay developer account? That&apos;s fine — skip the eBay keys. Market research and publish still work with demo data.
+                For Supabase, run both SQL migrations in your project SQL editor after adding the keys.
               </p>
             </CardContent>
           </Card>
@@ -128,7 +205,7 @@ export default function SettingsPage() {
             <CardContent className="text-sm text-muted-foreground">
               <p>Version 1.0.0</p>
               <p className="mt-2">
-                AI-powered eBay reseller assistant. Built with Next.js, OpenAI, eBay APIs, and Supabase.
+                AI-powered eBay reseller assistant. Built with Next.js, Gemini, eBay APIs, and Supabase.
               </p>
             </CardContent>
           </Card>

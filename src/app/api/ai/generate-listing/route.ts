@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { generateListing } from "@/lib/openai/client";
+import { generateListing } from "@/lib/ai/client";
 import { handleApiError, parseJsonBody, ApiError } from "@/lib/api-utils";
 import type { ProductAnalysis } from "@/types";
 
