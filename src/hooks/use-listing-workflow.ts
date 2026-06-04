@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { dataUrlToBlob } from "@/lib/data-url";
 import type {
   GeneratedListing,
   MarketResearch,
@@ -43,6 +44,11 @@ const initialState: ListingWorkflowState = {
 
 export function useListingWorkflow() {
   const [state, setState] = useState<ListingWorkflowState>(initialState);
+  const photosRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    photosRef.current = state.photos;
+  }, [state.photos]);
 
   const setStep = useCallback((step: ListingStep) => {
     setState((s) => ({ ...s, step }));
@@ -63,19 +69,24 @@ export function useListingWorkflow() {
     }));
   }, []);
 
-  const analyzePhotos = useCallback(async () => {
+  const analyzePhotos = useCallback(async (photosOverride?: string[]) => {
+    const photos = (photosOverride ?? photosRef.current).filter(Boolean);
+
+    if (!photos.length) {
+      throw new Error("Please upload at least one photo");
+    }
+
     setState((s) => ({ ...s, loading: true, error: null }));
+
     try {
-      let photos: string[] = [];
-      setState((s) => {
-        photos = s.photos;
-        return s;
-      });
+      const formData = new FormData();
+      for (const [index, photo] of photos.slice(0, 5).entries()) {
+        formData.append("images", dataUrlToBlob(photo), `photo-${index + 1}.jpg`);
+      }
 
       const res = await fetch("/api/ai/analyze-photos", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageUrls: photos }),
+        body: formData,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Analysis failed");
@@ -92,7 +103,7 @@ export function useListingWorkflow() {
       setState((s) => ({ ...s, loading: false, error: message }));
       throw err;
     }
-  }, [state.photos]);
+  }, []);
 
   const researchMarket = useCallback(async (query: string) => {
     setState((s) => ({ ...s, loading: true, error: null }));

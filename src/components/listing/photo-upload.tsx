@@ -14,6 +14,7 @@ interface PhotoUploadProps {
   onAdd: (photos: string[]) => void;
   onRemove: (index: number) => void;
   onEnhanced?: (index: number, enhanced: string) => void;
+  onProcessingChange?: (processing: boolean) => void;
   maxPhotos?: number;
 }
 
@@ -23,6 +24,7 @@ export function PhotoUpload({
   onAdd,
   onRemove,
   onEnhanced,
+  onProcessingChange,
   maxPhotos = 10,
 }: PhotoUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -32,14 +34,19 @@ export function PhotoUpload({
       if (!files) return;
       const remaining = maxPhotos - photos.length;
       const toProcess = Array.from(files).slice(0, remaining);
+      if (!toProcess.length) return;
 
-      const urls = await Promise.all(
-        toProcess.map((file) => compressImageFile(file))
-      );
-
-      onAdd(urls);
+      onProcessingChange?.(true);
+      try {
+        const urls = await Promise.all(
+          toProcess.map((file) => compressImageFile(file))
+        );
+        onAdd(urls);
+      } finally {
+        onProcessingChange?.(false);
+      }
     },
-    [maxPhotos, onAdd, photos.length]
+    [maxPhotos, onAdd, onProcessingChange, photos.length]
   );
 
   const handleEnhance = async (index: number, file?: File) => {

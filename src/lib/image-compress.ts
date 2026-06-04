@@ -1,5 +1,6 @@
-const MAX_DIMENSION = 1600;
-const JPEG_QUALITY = 0.82;
+const MAX_DIMENSION = 1024;
+const JPEG_QUALITY = 0.72;
+const ALWAYS_COMPRESS_ABOVE_BYTES = 150_000;
 
 export async function compressImageFile(file: File): Promise<string> {
   if (!file.type.startsWith("image/")) {
@@ -8,12 +9,12 @@ export async function compressImageFile(file: File): Promise<string> {
 
   const dataUrl = await readFileAsDataUrl(file);
 
-  if (file.size <= 500_000) {
+  if (file.size <= ALWAYS_COMPRESS_ABOVE_BYTES && file.type === "image/jpeg") {
     return dataUrl;
   }
 
   try {
-    return await compressDataUrl(dataUrl, file.type);
+    return await compressDataUrl(dataUrl);
   } catch {
     return dataUrl;
   }
@@ -28,7 +29,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-function compressDataUrl(dataUrl: string, mimeType: string): Promise<string> {
+function compressDataUrl(dataUrl: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -47,7 +48,7 @@ function compressDataUrl(dataUrl: string, mimeType: string): Promise<string> {
       }
 
       ctx.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL(mimeType === "image/png" ? "image/jpeg" : mimeType, JPEG_QUALITY));
+      resolve(canvas.toDataURL("image/jpeg", JPEG_QUALITY));
     };
     img.onerror = () => reject(new Error("Failed to load image"));
     img.src = dataUrl;

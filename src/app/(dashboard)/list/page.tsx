@@ -33,6 +33,7 @@ export default function NewListingPage() {
   const [shippingCost, setShippingCost] = useState(0);
   const [costOfGoods, setCostOfGoods] = useState(0);
   const [marketQuery, setMarketQuery] = useState("");
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
@@ -50,7 +51,7 @@ export default function NewListingPage() {
       return;
     }
     try {
-      await workflow.analyzePhotos();
+      await workflow.analyzePhotos(state.photos);
       toast.success("Product identified!");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Analysis failed");
@@ -212,11 +213,12 @@ export default function NewListingPage() {
                   onAdd={workflow.addPhotos}
                   onRemove={workflow.removePhoto}
                   onEnhanced={handleEnhanced}
+                  onProcessingChange={setUploadingPhotos}
                 />
                 <Button
                   className="w-full rounded-xl sm:w-auto"
                   size="lg"
-                  disabled={state.photos.length === 0 || state.loading}
+                  disabled={state.photos.length === 0 || state.loading || uploadingPhotos}
                   onClick={handleAnalyze}
                 >
                   {state.loading ? (
