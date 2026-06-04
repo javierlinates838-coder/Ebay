@@ -12,11 +12,15 @@ import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface AppConfig {
+  ai: boolean;
+  aiProvider: "gemini" | "openai" | null;
+  gemini: boolean;
   openai: boolean;
   ebay: boolean;
   ebayBrowse: boolean;
   photoroom: boolean;
   supabase: boolean;
+  supabaseStorage: boolean;
   demoMode: boolean;
 }
 
@@ -78,11 +82,21 @@ function SettingsContent() {
   };
 
   const envStatus = [
-    { name: "OpenAI API", key: "OPENAI_API_KEY", configured: config?.openai ?? false, optional: true },
-    { name: "eBay OAuth", key: "EBAY_CLIENT_ID + EBAY_REDIRECT_URI", configured: config?.ebay ?? false, optional: true },
-    { name: "eBay Market Search", key: "EBAY_CLIENT_ID + EBAY_CLIENT_SECRET", configured: config?.ebayBrowse ?? false, optional: true },
-    { name: "PhotoRoom API", key: "PHOTOROOM_API_KEY", configured: config?.photoroom ?? false, optional: true },
-    { name: "Supabase", key: "NEXT_PUBLIC_SUPABASE_URL", configured: config?.supabase ?? false, optional: true },
+    { name: "Google Gemini", key: "GEMINI_API_KEY", configured: config?.gemini ?? false },
+    { name: "OpenAI (optional)", key: "OPENAI_API_KEY", configured: config?.openai ?? false },
+    {
+      name: "Supabase URL + Anon Key",
+      key: "NEXT_PUBLIC_SUPABASE_URL + ANON_KEY",
+      configured: config?.supabase ?? false,
+    },
+    {
+      name: "Supabase Service Role (inventory)",
+      key: "SUPABASE_SERVICE_ROLE_KEY",
+      configured: config?.supabaseStorage ?? false,
+    },
+    { name: "eBay OAuth (optional)", key: "EBAY_CLIENT_ID + REDIRECT_URI", configured: config?.ebay ?? false },
+    { name: "eBay Market Search (optional)", key: "EBAY_CLIENT_ID + SECRET", configured: config?.ebayBrowse ?? false },
+    { name: "PhotoRoom (optional)", key: "PHOTOROOM_API_KEY", configured: config?.photoroom ?? false },
   ];
 
   return (
@@ -93,8 +107,16 @@ function SettingsContent() {
           {config?.demoMode && (
             <Alert>
               <AlertDescription>
-                Running in demo mode — no API keys required. Search, AI analysis, and market research use simulated data.
-                Add keys below only when you are ready for live eBay and OpenAI integration.
+                eBay features are in demo mode — market search and publish use simulated data.
+                Add your Gemini key for real AI analysis and Supabase keys to save inventory to the cloud.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {config?.ai && config.aiProvider && (
+            <Alert>
+              <AlertDescription>
+                AI is active via {config.aiProvider === "gemini" ? "Google Gemini" : "OpenAI"}.
               </AlertDescription>
             </Alert>
           )}
@@ -170,8 +192,8 @@ function SettingsContent() {
               </div>
               <Separator className="my-4" />
               <p className="text-xs text-muted-foreground">
-                If search or AI features show errors after adding keys, double-check the values in your Vercel project settings.
-                Invalid or partial keys can cause failures — remove them to return to demo mode.
+                No eBay developer account? That&apos;s fine — skip the eBay keys. Market research and publish still work with demo data.
+                For Supabase, run both SQL migrations in your project SQL editor after adding the keys.
               </p>
             </CardContent>
           </Card>
@@ -183,7 +205,7 @@ function SettingsContent() {
             <CardContent className="text-sm text-muted-foreground">
               <p>Version 1.0.0</p>
               <p className="mt-2">
-                AI-powered eBay reseller assistant. Built with Next.js, OpenAI, eBay APIs, and Supabase.
+                AI-powered eBay reseller assistant. Built with Next.js, Gemini, eBay APIs, and Supabase.
               </p>
             </CardContent>
           </Card>
