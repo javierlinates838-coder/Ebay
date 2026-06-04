@@ -69,11 +69,14 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Demo Mode
 
-Without API keys configured, the app runs in demo mode with:
+**You do not need to add any environment variables to use the app.** Without API keys, it runs in demo mode with:
+
 - Mock AI product analysis
 - Simulated market research data
 - Client-side photo enhancement
 - Local storage inventory persistence
+
+If you added API keys on Vercel and search or AI features show errors like "invalid", the keys may be wrong or incomplete. Either fix them or remove them from Vercel to return to demo mode. Check **Settings** in the app to see which integrations are active.
 
 ## Deploy to Vercel
 
