@@ -17,6 +17,8 @@ export interface ListingWorkflowState {
   photos: string[];
   enhancedPhotos: string[];
   analysis: ProductAnalysis | null;
+  analysisSource: "gemini" | "openai" | "demo" | null;
+  analysisWarning: string | null;
   market: MarketResearch | null;
   pricing: PricingRecommendation | null;
   generatedListing: GeneratedListing | null;
@@ -32,6 +34,8 @@ const initialState: ListingWorkflowState = {
   photos: [],
   enhancedPhotos: [],
   analysis: null,
+  analysisSource: null,
+  analysisWarning: null,
   market: null,
   pricing: null,
   generatedListing: null,
@@ -94,10 +98,16 @@ export function useListingWorkflow() {
       setState((s) => ({
         ...s,
         analysis: data.analysis,
+        analysisSource: data.source ?? null,
+        analysisWarning: data.warning ?? null,
         step: "analysis",
         loading: false,
       }));
-      return data.analysis as ProductAnalysis;
+      return {
+        analysis: data.analysis as ProductAnalysis,
+        source: data.source,
+        warning: data.warning as string | undefined,
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Analysis failed";
       setState((s) => ({ ...s, loading: false, error: message }));
@@ -216,6 +226,10 @@ export function useListingWorkflow() {
     }
   }, [state.photos]);
 
+  const updateAnalysis = useCallback((analysis: ProductAnalysis) => {
+    setState((s) => ({ ...s, analysis }));
+  }, []);
+
   const reset = useCallback(() => setState(initialState), []);
 
   const updateListingPrice = useCallback((price: number) => {
@@ -232,6 +246,7 @@ export function useListingWorkflow() {
     generateListing,
     calculateProfit,
     enhancePhoto,
+    updateAnalysis,
     reset,
     updateListingPrice,
     setState,

@@ -51,8 +51,14 @@ export default function NewListingPage() {
       return;
     }
     try {
-      await workflow.analyzePhotos(state.photos);
-      toast.success("Product identified!");
+      const result = await workflow.analyzePhotos(state.photos);
+      if (result.warning) {
+        toast.warning(result.warning);
+      } else if (result.source === "demo") {
+        toast.info("Demo mode — add GEMINI_API_KEY in Vercel for real AI identification.");
+      } else {
+        toast.success("Product identified!");
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Analysis failed");
     }
@@ -233,7 +239,13 @@ export default function NewListingPage() {
 
             {state.step === "analysis" && state.analysis && (
               <div className="space-y-6">
-                <ProductAnalysisCard analysis={state.analysis} />
+                <ProductAnalysisCard
+                  analysis={state.analysis}
+                  editable
+                  source={state.analysisSource ?? undefined}
+                  warning={state.analysisWarning ?? undefined}
+                  onChange={workflow.updateAnalysis}
+                />
                 <div className="space-y-2">
                   <Label htmlFor="market-query">Market search term</Label>
                   <Input

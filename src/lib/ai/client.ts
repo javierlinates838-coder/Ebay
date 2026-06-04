@@ -1,4 +1,4 @@
-import { generateObject, type LanguageModel } from "ai";
+import { generateObject, generateText, type LanguageModel } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
@@ -28,6 +28,35 @@ const listingSchema = z.object({
   }),
 });
 
+export type AnalysisSource = "gemini" | "openai" | "demo";
+
+export interface ProductAnalysisResult {
+  analysis: ProductAnalysis;
+  source: AnalysisSource;
+  warning?: string;
+}
+
+const ANALYSIS_PROMPT = `You are an expert eBay reseller assistant analyzing product photos for resale listings.
+
+Study every photo carefully. Look for:
+- Brand logos, tags, labels, and packaging text
+- Model numbers, SKUs, serial numbers, and size labels
+- Material, color, style, and distinguishing features
+- Visible wear, damage, stains, or missing parts
+
+Return your best identification for an eBay listing:
+- product: specific item name (e.g. "Nike Air Force 1 Low White Sneakers", not "shoes")
+- brand: brand name, or "Unbranded" if none visible
+- model: model/style number or name, or "Not visible" if unknown
+- color: primary color(s)
+- condition: one of New, Like New, Good, Fair, Poor — based on visible wear
+- category: best eBay category path
+- confidence: 0-100 based on how clearly the item is identifiable
+- itemSpecifics: useful eBay item specifics (Size, Material, Style, etc.)
+
+If you cannot identify the item clearly, still describe what you see literally and set confidence below 50.
+Do not invent brand or model details that are not supported by the photos.`;
+
 function getGeminiApiKey(): string | undefined {
   return (
     process.env.GEMINI_API_KEY?.trim() ||
@@ -53,10 +82,10 @@ export function getAIProviderName(): "gemini" | "openai" | null {
   return null;
 }
 
-function getAIModel(): LanguageModel {
+function getVisionModel(): LanguageModel {
   if (isGeminiConfigured()) {
     const google = createGoogleGenerativeAI({ apiKey: getGeminiApiKey() });
-    return google("gemini-2.0-flash");
+    return google("gemini-2.5-flash");
   }
 
   if (isOpenAIConfigured()) {
@@ -64,6 +93,10 @@ function getAIModel(): LanguageModel {
   }
 
   throw new Error("No AI provider configured");
+}
+
+function getTextModel(): LanguageModel {
+  return getVisionModel();
 }
 
 function toImageParts(imageUrls: string[]) {
@@ -77,35 +110,82 @@ function toImageParts(imageUrls: string[]) {
   });
 }
 
-export async function analyzeProductPhotos(
-  imageUrls: string[]
-): Promise<ProductAnalysis> {
-  if (!isAIConfigured()) {
-    return generateMockAnalysis();
-  }
+function getAnalysisSource(): AnalysisSource {
+  if (isGeminiConfigured()) return "gemini";
+  if (isOpenAIConfigured()) return "openai";
+  return "demo";
+}
+
+async function runVisionAnalysis(imageUrls: string[]): Promise<ProductAnalysis> {
+  const model = getVisionModel();
+  const messages = [
+    {
+      role: "user" as const,
+      content: [{ type: "text" as const, text: ANALYSIS_PROMPT }, ...toImageParts(imageUrls)],
+    },
+  ];
 
   try {
     const { object } = await generateObject({
-      model: getAIModel(),
+      model,
       schema: productAnalysisSchema,
+      messages,
+      ...(isGeminiConfigured()
+        ? { providerOptions: { google: { structuredOutputs: false } } }
+        : {}),
+    });
+    return object;
+  } catch (structuredError) {
+    console.warn("[AI] Structured vision analysis failed, retrying with text JSON:", structuredError);
+
+    const { text } = await generateText({
+      model,
       messages: [
+        ...messages,
         {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "Analyze these product photos for an eBay listing. Identify the product name, brand, model, color, condition (New, Like New, Good, Fair, Poor), eBay category, and item specifics. Provide a confidence score 0-100 for your identification.",
-            },
-            ...toImageParts(imageUrls),
-          ],
+          role: "user" as const,
+          content:
+            "Respond with ONLY valid JSON matching this shape: {\"product\":\"\",\"brand\":\"\",\"model\":\"\",\"color\":\"\",\"condition\":\"\",\"category\":\"\",\"confidence\":0,\"itemSpecifics\":{}}",
         },
       ],
     });
 
-    return object;
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw structuredError;
+    }
+
+    return productAnalysisSchema.parse(JSON.parse(jsonMatch[0]));
+  }
+}
+
+export async function analyzeProductPhotos(
+  imageUrls: string[]
+): Promise<ProductAnalysisResult> {
+  if (!isAIConfigured()) {
+    return {
+      analysis: generateMockAnalysis(),
+      source: "demo",
+      warning:
+        "Demo mode — add GEMINI_API_KEY in Vercel for real product identification.",
+    };
+  }
+
+  try {
+    const analysis = await runVisionAnalysis(imageUrls);
+    return {
+      analysis,
+      source: getAnalysisSource(),
+      warning:
+        analysis.confidence < 50
+          ? "Low confidence — review and edit the details below before continuing."
+          : undefined,
+    };
   } catch (error) {
-    console.warn("[AI] Photo analysis failed, using demo data:", error);
-    return generateMockAnalysis();
+    console.error("[AI] Photo analysis failed:", error);
+    throw new Error(
+      "AI could not identify this product. Try a clearer photo with the label or brand visible, then edit the fields manually."
+    );
   }
 }
 
@@ -120,7 +200,7 @@ export async function generateListing(params: {
 
   try {
     const { object } = await generateObject({
-      model: getAIModel(),
+      model: getTextModel(),
       schema: listingSchema,
       prompt: `Generate an SEO-optimized eBay listing for this item:
 Product: ${params.analysis.product}
@@ -138,28 +218,28 @@ Requirements:
 - Item specifics: all relevant eBay item specifics
 - Keywords: 10-15 search keywords
 - Shipping: estimate weight, dimensions, best USPS/UPS service, cost`,
+      ...(isGeminiConfigured()
+        ? { providerOptions: { google: { structuredOutputs: false } } }
+        : {}),
     });
 
     return object;
   } catch (error) {
-    console.warn("[AI] Listing generation failed, using demo data:", error);
+    console.warn("[AI] Listing generation failed, using template:", error);
     return generateMockListing(params.analysis, params.marketPrice);
   }
 }
 
 function generateMockAnalysis(): ProductAnalysis {
   return {
-    product: "Vintage Electronics Item",
-    brand: "Unknown Brand",
-    model: "Model X",
-    color: "Black",
+    product: "Unidentified Item — edit me",
+    brand: "Unknown",
+    model: "Not visible",
+    color: "Unknown",
     condition: "Good",
-    category: "Consumer Electronics",
-    confidence: 72,
+    category: "General",
+    confidence: 25,
     itemSpecifics: {
-      Brand: "Unknown Brand",
-      Model: "Model X",
-      Color: "Black",
       Condition: "Good",
     },
   };

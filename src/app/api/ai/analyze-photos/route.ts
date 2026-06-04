@@ -40,8 +40,8 @@ export async function POST(request: NextRequest) {
       throw new ApiError("Maximum 10 images allowed", 400);
     }
 
-    const analysis = await analyzeProductPhotos(imageUrls);
-    return Response.json({ analysis });
+    const result = await analyzeProductPhotos(imageUrls);
+    return Response.json(result);
   } catch (error) {
     return handleApiError(error);
   }
