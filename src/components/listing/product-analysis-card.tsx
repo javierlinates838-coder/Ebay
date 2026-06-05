@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AlertTriangle, Search, Sparkles, Tag } from "lucide-react";
+import { AlertTriangle, ExternalLink, Search, Sparkles, Tag } from "lucide-react";
 import type { ProductAnalysis } from "@/types";
 
 interface ProductAnalysisCardProps {
@@ -69,7 +69,7 @@ export function ProductAnalysisCard({
               )}
               {source === "gemini" && (
                 <Badge variant="outline" className="text-xs text-[#0064D2]">
-                  Gemini Vision
+                  {analysis.usedWebSearch ? "Google Search + Vision" : "Gemini Vision"}
                 </Badge>
               )}
               <Badge variant="secondary" className="font-mono">
@@ -97,6 +97,29 @@ export function ProductAnalysisCard({
               Suggested eBay title
             </p>
             <p className="mt-1 text-sm font-medium">{analysis.ebayTitleSuggestion}</p>
+          </CardContent>
+        )}
+
+        {analysis.webSources && analysis.webSources.length > 0 && (
+          <CardContent className="border-b bg-muted/30 py-3">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Matched on the web
+            </p>
+            <ul className="mt-2 space-y-1">
+              {analysis.webSources.map((src) => (
+                <li key={src.url}>
+                  <a
+                    href={src.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-[#0064D2] hover:underline"
+                  >
+                    <ExternalLink className="h-3 w-3 shrink-0" />
+                    {src.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
           </CardContent>
         )}
 

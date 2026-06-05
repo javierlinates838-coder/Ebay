@@ -31,6 +31,10 @@ export interface ProductAnalysis {
   ebayTitleSuggestion?: string;
   /** Keywords for sold-comp research */
   compsKeywords?: string[];
+  /** Web pages used to identify the product (Google Search grounding) */
+  webSources?: { title: string; url: string }[];
+  /** True when Google Search was used to verify identification */
+  usedWebSearch?: boolean;
 }
 
 export interface MarketResearch {
