@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { analyzeProductPhotos } from "@/lib/ai/client";
+import { analyzeProductPhotos, isAIConfigured } from "@/lib/ai/client";
 import { blobToDataUrl } from "@/lib/data-url";
 import { handleApiError, parseJsonBody, ApiError } from "@/lib/api-utils";
 
@@ -27,6 +27,13 @@ async function readImageUrls(request: NextRequest): Promise<string[]> {
 
 export async function POST(request: NextRequest) {
   try {
+    if (!isAIConfigured()) {
+      throw new ApiError(
+        "AI is not configured. Add GEMINI_API_KEY in Vercel → Settings → Environment Variables, then redeploy.",
+        503
+      );
+    }
+
     const imageUrls = await readImageUrls(request);
 
     if (!imageUrls.length) {

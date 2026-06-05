@@ -49,13 +49,20 @@ function NewListingContent() {
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [ebayConfigured, setEbayConfigured] = useState(false);
+  const [aiConfigured, setAiConfigured] = useState<boolean | null>(null);
   const loadedDraftRef = useRef<string | null>(null);
 
   useEffect(() => {
     fetch("/api/config")
       .then((r) => r.json())
-      .then((c) => setEbayConfigured(c.ebayConfigured ?? false))
-      .catch(() => setEbayConfigured(false));
+      .then((c) => {
+        setEbayConfigured(c.ebayConfigured ?? false);
+        setAiConfigured(c.ai ?? false);
+      })
+      .catch(() => {
+        setEbayConfigured(false);
+        setAiConfigured(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -79,6 +86,10 @@ function NewListingContent() {
   const handleAnalyze = async () => {
     if (state.photos.length === 0) {
       toast.error("Please upload at least one photo");
+      return;
+    }
+    if (aiConfigured === false) {
+      toast.error("Add GEMINI_API_KEY in Vercel → Settings → Environment Variables, then redeploy.");
       return;
     }
     try {
@@ -247,6 +258,24 @@ function NewListingContent() {
           >
             {state.step === "photos" && (
               <div className="space-y-6">
+                {aiConfigured === false && (
+                  <Alert variant="destructive">
+                    <AlertDescription>
+                      <strong>AI not configured.</strong> Photo analysis requires{" "}
+                      <code className="text-xs">GEMINI_API_KEY</code> in Vercel environment
+                      variables. Get a free key at{" "}
+                      <a
+                        href="https://aistudio.google.com/apikey"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        Google AI Studio
+                      </a>
+                      , add it in Vercel, then redeploy.
+                    </AlertDescription>
+                  </Alert>
+                )}
                 <div>
                   <h2 className="text-xl font-semibold">Upload Photos</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -264,7 +293,12 @@ function NewListingContent() {
                 <Button
                   className="w-full rounded-xl bg-[#0064D2] hover:bg-[#0053b3] sm:w-auto"
                   size="lg"
-                  disabled={state.photos.length === 0 || state.loading || uploadingPhotos}
+                  disabled={
+                    state.photos.length === 0 ||
+                    state.loading ||
+                    uploadingPhotos ||
+                    aiConfigured === false
+                  }
                   onClick={handleAnalyze}
                 >
                   {state.loading ? (
