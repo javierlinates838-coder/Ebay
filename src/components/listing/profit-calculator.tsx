@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { formatCurrency, formatPercent } from "@/lib/profit-calculator";
 import type { ProfitBreakdown } from "@/types";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
 
 interface ProfitCalculatorProps {
   profit: ProfitBreakdown | null;
@@ -77,6 +79,17 @@ export function ProfitCalculator({
               />
             </div>
           </div>
+
+          <Button
+            className="w-full rounded-xl"
+            onClick={onCalculate}
+            disabled={loading || !salePrice}
+          >
+            {loading ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
+            Calculate Profit
+          </Button>
 
           {profit && (
             <div className="space-y-3 rounded-xl bg-muted/50 p-4">

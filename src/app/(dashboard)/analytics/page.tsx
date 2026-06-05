@@ -1,21 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { AppHeader } from "@/components/layout/app-nav";
 import { AnalyticsDashboard } from "@/components/analytics/analytics-dashboard";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { AnalyticsSummary } from "@/types";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useInventory } from "@/hooks/use-inventory";
+import { computeAnalyticsFromListings, getEmptyAnalytics } from "@/lib/analytics-utils";
+import Link from "next/link";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export default function AnalyticsPage() {
-  const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { listings, loading } = useInventory();
 
-  useEffect(() => {
-    fetch("/api/analytics")
-      .then((r) => r.json())
-      .then((data) => setAnalytics(data.analytics))
-      .finally(() => setLoading(false));
-  }, []);
+  const analytics = useMemo(() => {
+    if (!listings.length) return getEmptyAnalytics();
+    return computeAnalyticsFromListings(listings);
+  }, [listings]);
 
   return (
     <>
@@ -31,9 +33,21 @@ export default function AnalyticsPage() {
               </div>
               <Skeleton className="h-72 rounded-xl" />
             </div>
-          ) : analytics ? (
+          ) : listings.length === 0 ? (
+            <div className="space-y-4">
+              <Alert>
+                <AlertDescription>
+                  No inventory data yet. Create listings and mark them as sold to see analytics here.
+                </AlertDescription>
+              </Alert>
+              <Link href="/list" className={cn(buttonVariants(), "rounded-xl bg-[#0064D2] hover:bg-[#0053b3]")}>
+                Create Your First Listing
+              </Link>
+              <AnalyticsDashboard analytics={analytics} />
+            </div>
+          ) : (
             <AnalyticsDashboard analytics={analytics} />
-          ) : null}
+          )}
         </div>
       </main>
     </>

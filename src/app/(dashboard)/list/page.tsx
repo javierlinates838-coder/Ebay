@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { Suspense, useState, useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
@@ -8,6 +9,7 @@ import {
   Loader2,
   Save,
   Upload as UploadIcon,
+  CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppHeader } from "@/components/layout/app-nav";
@@ -20,14 +22,26 @@ import { ProductAnalysisCard } from "@/components/listing/product-analysis-card"
 import { MarketResearchCard } from "@/components/listing/market-research-card";
 import { ListingPreview } from "@/components/listing/listing-preview";
 import { ProfitCalculator } from "@/components/listing/profit-calculator";
+import { CopyToEbayKit } from "@/components/listing/copy-to-ebay-kit";
 import { StepIndicator } from "@/components/listing/step-indicator";
 import { useListingWorkflow } from "@/hooks/use-listing-workflow";
 import { useInventory } from "@/hooks/use-inventory";
 import { formatCurrency } from "@/lib/profit-calculator";
 
 export default function NewListingPage() {
+  return (
+    <Suspense fallback={<AppHeader title="New Listing" />}>
+      <NewListingContent />
+    </Suspense>
+  );
+}
+
+function NewListingContent() {
+  const searchParams = useSearchParams();
+  const draftId = searchParams.get("draft");
+
   const workflow = useListingWorkflow();
-  const { saveListing } = useInventory();
+  const { saveListing, listings } = useInventory();
   const { state, setStep } = workflow;
 
   const [shippingCost, setShippingCost] = useState(0);
@@ -36,6 +50,29 @@ export default function NewListingPage() {
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [ebayConfigured, setEbayConfigured] = useState(false);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [savedDraftId, setSavedDraftId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((c) => setEbayConfigured(c.ebayConfigured ?? false))
+      .catch(() => setEbayConfigured(false));
+  }, []);
+
+  useEffect(() => {
+    if (!draftId || draftLoaded || !listings.length) return;
+    const draft = listings.find((l) => l.id === draftId);
+    if (draft) {
+      workflow.loadFromListing(draft);
+      setCostOfGoods(draft.cost_of_goods || 0);
+      setShippingCost(draft.generated_listing?.shippingSuggestions.estimatedCost || 0);
+      setSavedDraftId(draft.id);
+      setDraftLoaded(true);
+      toast.info("Draft loaded — continue where you left off");
+    }
+  }, [draftId, draftLoaded, listings, workflow]);
 
   const completedSteps = [
     state.photos.length > 0 ? "photos" : null,
@@ -76,7 +113,7 @@ export default function NewListingPage() {
     }
 
     try {
-      await workflow.researchMarket(query);
+      await workflow.researchMarket(query, state.analysis);
       toast.success("Market research complete");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Market research failed");
@@ -105,26 +142,33 @@ export default function NewListingPage() {
     }
   };
 
+  const buildListingPayload = useCallback(
+    (status: "draft" | "listed" = "draft") => ({
+      id: savedDraftId ?? undefined,
+      title: state.generatedListing?.title || state.analysis?.product || "Untitled Listing",
+      description: state.generatedListing?.description,
+      status,
+      product_analysis: state.analysis,
+      market_research: state.market,
+      generated_listing: state.generatedListing,
+      pricing: state.pricing,
+      profit: state.profit,
+      photos: state.photos,
+      enhanced_photos: state.enhancedPhotos,
+      category: state.analysis?.category,
+      listing_price: state.listingPrice,
+      cost_of_goods: costOfGoods,
+      keywords: state.generatedListing?.keywords,
+      item_specifics: state.generatedListing?.itemSpecifics,
+    }),
+    [savedDraftId, state, costOfGoods]
+  );
+
   const handleSaveDraft = async () => {
     setSaving(true);
     try {
-      await saveListing({
-        title: state.generatedListing?.title || state.analysis?.product || "Untitled Listing",
-        description: state.generatedListing?.description,
-        status: "draft",
-        product_analysis: state.analysis,
-        market_research: state.market,
-        generated_listing: state.generatedListing,
-        pricing: state.pricing,
-        profit: state.profit,
-        photos: state.photos,
-        enhanced_photos: state.enhancedPhotos,
-        category: state.analysis?.category,
-        listing_price: state.listingPrice,
-        cost_of_goods: costOfGoods,
-        keywords: state.generatedListing?.keywords,
-        item_specifics: state.generatedListing?.itemSpecifics,
-      });
+      const saved = await saveListing(buildListingPayload("draft"));
+      setSavedDraftId(saved.id);
       toast.success("Draft saved to inventory");
     } catch {
       toast.error("Failed to save draft");
@@ -136,23 +180,7 @@ export default function NewListingPage() {
   const handlePublishEbay = async () => {
     setPublishing(true);
     try {
-      const listing = await saveListing({
-        title: state.generatedListing?.title || "Untitled",
-        description: state.generatedListing?.description,
-        status: "draft",
-        product_analysis: state.analysis,
-        market_research: state.market,
-        generated_listing: state.generatedListing,
-        pricing: state.pricing,
-        profit: state.profit,
-        photos: state.photos,
-        enhanced_photos: state.enhancedPhotos,
-        category: state.analysis?.category,
-        listing_price: state.listingPrice,
-        cost_of_goods: costOfGoods,
-        keywords: state.generatedListing?.keywords,
-        item_specifics: state.generatedListing?.itemSpecifics,
-      });
+      const listing = await saveListing(buildListingPayload("draft"));
 
       const res = await fetch("/api/ebay/publish", {
         method: "POST",
@@ -186,9 +214,21 @@ export default function NewListingPage() {
     [workflow]
   );
 
+  const handleSelectPrice = (price: number) => {
+    workflow.updateListingPrice(price);
+    toast.success(`Price set to ${formatCurrency(price)}`);
+  };
+
+  const handleGoToReview = async () => {
+    if (!state.profit && state.listingPrice) {
+      await handleCalculateProfit();
+    }
+    setStep("review");
+  };
+
   return (
     <>
-      <AppHeader title="New Listing" />
+      <AppHeader title={draftId ? "Resume Listing" : "New Listing"} />
       <main className="flex-1 p-4 sm:p-6">
         <div className="mx-auto max-w-3xl">
           <StepIndicator currentStep={state.step} completedSteps={completedSteps} />
@@ -222,7 +262,7 @@ export default function NewListingPage() {
                   onProcessingChange={setUploadingPhotos}
                 />
                 <Button
-                  className="w-full rounded-xl sm:w-auto"
+                  className="w-full rounded-xl bg-[#0064D2] hover:bg-[#0053b3] sm:w-auto"
                   size="lg"
                   disabled={state.photos.length === 0 || state.loading || uploadingPhotos}
                   onClick={handleAnalyze}
@@ -258,7 +298,9 @@ export default function NewListingPage() {
                     }}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Search eBay sold comps. Works in demo mode without API keys.
+                    {ebayConfigured
+                      ? "Search live eBay sold comps for pricing."
+                      : "AI will estimate pricing based on your product — no eBay keys needed."}
                   </p>
                 </div>
                 <div className="flex gap-3">
@@ -266,7 +308,11 @@ export default function NewListingPage() {
                     <ArrowLeft className="mr-2 h-4 w-4" />
                     Back
                   </Button>
-                  <Button onClick={handleMarketResearch} disabled={state.loading}>
+                  <Button
+                    className="bg-[#0064D2] hover:bg-[#0053b3]"
+                    onClick={handleMarketResearch}
+                    disabled={state.loading}
+                  >
                     {state.loading ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
@@ -280,13 +326,23 @@ export default function NewListingPage() {
 
             {state.step === "market" && state.market && state.pricing && (
               <div className="space-y-6">
-                <MarketResearchCard market={state.market} pricing={state.pricing} />
+                <MarketResearchCard
+                  market={state.market}
+                  pricing={state.pricing}
+                  source={state.marketSource ?? "demo"}
+                  selectedPrice={state.listingPrice}
+                  onSelectPrice={handleSelectPrice}
+                />
                 <div className="flex gap-3">
                   <Button variant="outline" onClick={() => setStep("analysis")}>
                     <ArrowLeft className="mr-2 h-4 w-4" />
                     Back
                   </Button>
-                  <Button onClick={handleGenerateListing} disabled={state.loading}>
+                  <Button
+                    className="bg-[#0064D2] hover:bg-[#0053b3]"
+                    onClick={handleGenerateListing}
+                    disabled={state.loading}
+                  >
                     {state.loading ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
@@ -300,13 +356,19 @@ export default function NewListingPage() {
 
             {state.step === "listing" && state.generatedListing && (
               <div className="space-y-6">
-                <ListingPreview listing={state.generatedListing} />
+                <ListingPreview
+                  listing={state.generatedListing}
+                  onTitleChange={(title) => workflow.updateGeneratedListing({ title })}
+                  onDescriptionChange={(description) =>
+                    workflow.updateGeneratedListing({ description })
+                  }
+                />
                 <div className="flex gap-3">
                   <Button variant="outline" onClick={() => setStep("market")}>
                     <ArrowLeft className="mr-2 h-4 w-4" />
                     Back
                   </Button>
-                  <Button onClick={() => setStep("profit")}>
+                  <Button className="bg-[#0064D2] hover:bg-[#0053b3]" onClick={() => setStep("profit")}>
                     <ArrowRight className="mr-2 h-4 w-4" />
                     Calculate Profit
                   </Button>
@@ -320,7 +382,9 @@ export default function NewListingPage() {
                   profit={state.profit}
                   salePrice={state.listingPrice}
                   costOfGoods={costOfGoods}
-                  shippingCost={shippingCost || state.generatedListing?.shippingSuggestions.estimatedCost || 0}
+                  shippingCost={
+                    shippingCost || state.generatedListing?.shippingSuggestions.estimatedCost || 0
+                  }
                   onSalePriceChange={workflow.updateListingPrice}
                   onCostChange={setCostOfGoods}
                   onShippingChange={setShippingCost}
@@ -332,8 +396,12 @@ export default function NewListingPage() {
                     <ArrowLeft className="mr-2 h-4 w-4" />
                     Back
                   </Button>
-                  <Button onClick={() => setStep("review")} disabled={!state.profit}>
-                    Review & Publish
+                  <Button
+                    className="bg-[#0064D2] hover:bg-[#0053b3]"
+                    onClick={handleGoToReview}
+                    disabled={state.loading}
+                  >
+                    Review & Finish
                   </Button>
                 </div>
               </div>
@@ -341,10 +409,19 @@ export default function NewListingPage() {
 
             {state.step === "review" && (
               <div className="space-y-6">
+                <CopyToEbayKit
+                  listing={state.generatedListing!}
+                  analysis={state.analysis}
+                  photos={state.photos}
+                  enhancedPhotos={state.enhancedPhotos}
+                  price={state.listingPrice}
+                  profit={state.profit}
+                />
+
                 <div className="rounded-2xl border bg-card p-6 shadow-lg">
-                  <h2 className="text-xl font-semibold">Ready to List</h2>
+                  <h2 className="text-xl font-semibold">Summary</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Review your listing before saving or publishing to eBay.
+                    Save to inventory or publish directly if eBay is connected.
                   </p>
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -373,21 +450,42 @@ export default function NewListingPage() {
                       onClick={handleSaveDraft}
                       disabled={saving}
                     >
-                      {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                      Save Draft
-                    </Button>
-                    <Button
-                      className="flex-1 rounded-xl"
-                      onClick={handlePublishEbay}
-                      disabled={publishing}
-                    >
-                      {publishing ? (
+                      {saving ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (
-                        <UploadIcon className="mr-2 h-4 w-4" />
+                        <Save className="mr-2 h-4 w-4" />
                       )}
-                      Publish to eBay
+                      Save to Inventory
                     </Button>
+                    {ebayConfigured ? (
+                      <Button
+                        className="flex-1 rounded-xl bg-[#0064D2] hover:bg-[#0053b3]"
+                        onClick={handlePublishEbay}
+                        disabled={publishing}
+                      >
+                        {publishing ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <UploadIcon className="mr-2 h-4 w-4" />
+                        )}
+                        Publish to eBay
+                      </Button>
+                    ) : (
+                      <Button
+                        className="flex-1 rounded-xl bg-green-600 hover:bg-green-700"
+                        onClick={async () => {
+                          await handleSaveDraft();
+                          toast.success(
+                            "Saved! Use the Copy to eBay Kit above to list manually.",
+                            { icon: <CheckCircle2 className="h-4 w-4" /> }
+                          );
+                        }}
+                        disabled={saving}
+                      >
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                        Mark Ready to List
+                      </Button>
+                    )}
                   </div>
                 </div>
 

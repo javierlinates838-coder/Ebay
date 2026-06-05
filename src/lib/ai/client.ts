@@ -2,7 +2,8 @@ import { generateObject, generateText, type LanguageModel } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
-import type { GeneratedListing, ProductAnalysis } from "@/types";
+import type { GeneratedListing, MarketResearch, PricingRecommendation, ProductAnalysis } from "@/types";
+import { analyzePricing } from "@/lib/ebay/client";
 
 const productAnalysisSchema = z.object({
   product: z.string(),
@@ -187,6 +188,83 @@ export async function analyzeProductPhotos(
       "AI could not identify this product. Try a clearer photo with the label or brand visible, then edit the fields manually."
     );
   }
+}
+
+const marketEstimateSchema = z.object({
+  averageSoldPrice: z.number(),
+  highestSoldPrice: z.number(),
+  lowestSoldPrice: z.number(),
+  suggestedListingPrice: z.number(),
+  suggestedAuctionPrice: z.number(),
+  recentSalesTrend: z.enum(["up", "down", "stable"]),
+  reasoning: z.string(),
+  sampleCompTitles: z.array(z.string()).max(5),
+  sampleCompPrices: z.array(z.number()).max(5),
+});
+
+export type MarketResearchSource = "ebay-live" | "ai-estimate" | "demo";
+
+export interface MarketResearchResult {
+  market: MarketResearch;
+  pricing: PricingRecommendation;
+  source: MarketResearchSource;
+}
+
+export async function estimateMarketPricing(
+  query: string,
+  analysis?: ProductAnalysis | null
+): Promise<MarketResearchResult> {
+  if (!isAIConfigured()) {
+    const { searchSoldListings } = await import("@/lib/ebay/client");
+    const market = await searchSoldListings(query);
+    return {
+      market,
+      pricing: analyzePricing(market),
+      source: "demo",
+    };
+  }
+
+  const { object } = await generateObject({
+    model: getTextModel(),
+    schema: marketEstimateSchema,
+    prompt: `You are an expert eBay reseller pricing analyst. Estimate realistic sold-price ranges for this item on eBay US.
+
+Search query: ${query}
+${analysis ? `Product: ${analysis.product}\nBrand: ${analysis.brand}\nModel: ${analysis.model}\nCondition: ${analysis.condition}\nCategory: ${analysis.category}` : ""}
+
+Base your estimate on typical eBay resale values for similar items. Be realistic — not optimistic.
+Provide sample comp titles and prices that resemble what you'd expect to see.`,
+    ...(isGeminiConfigured()
+      ? { providerOptions: { google: { structuredOutputs: false } } }
+      : {}),
+  });
+
+  const soldComps = object.sampleCompTitles.map((title, i) => ({
+    title,
+    price: object.sampleCompPrices[i] ?? object.averageSoldPrice,
+    soldDate: new Date(Date.now() - i * 4 * 24 * 60 * 60 * 1000).toISOString(),
+    condition: analysis?.condition,
+  }));
+
+  const market: MarketResearch = {
+    averageSoldPrice: object.averageSoldPrice,
+    highestSoldPrice: object.highestSoldPrice,
+    lowestSoldPrice: object.lowestSoldPrice,
+    numberSold: soldComps.length || 8,
+    recentSalesTrend: object.recentSalesTrend,
+    suggestedListingPrice: object.suggestedListingPrice,
+    suggestedAuctionPrice: object.suggestedAuctionPrice,
+    soldComps,
+  };
+
+  return {
+    market,
+    pricing: {
+      ...analyzePricing(market),
+      reasoning: object.reasoning,
+    },
+    source: "ai-estimate",
+  };
 }
 
 export async function generateListing(params: {

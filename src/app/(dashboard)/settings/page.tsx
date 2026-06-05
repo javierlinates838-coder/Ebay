@@ -22,6 +22,7 @@ interface AppConfig {
   supabase: boolean;
   supabaseStorage: boolean;
   demoMode: boolean;
+  ebayConfigured: boolean;
 }
 
 export default function SettingsPage() {
@@ -105,10 +106,21 @@ function SettingsContent() {
       <main className="flex-1 p-4 sm:p-6">
         <div className="mx-auto max-w-2xl space-y-6">
           {config?.demoMode && (
+            <Alert className="border-[#0064D2]/20 bg-[#0064D2]/5">
+              <AlertDescription>
+                eBay API is not configured — that&apos;s fine! Use the{" "}
+                <strong>Copy to eBay Kit</strong> on the review step to paste listings manually.
+                {config.ai
+                  ? " AI photo analysis and pricing estimates are active."
+                  : " Add GEMINI_API_KEY for real AI identification and pricing."}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {!config?.demoMode && config?.ebayConfigured && (
             <Alert>
               <AlertDescription>
-                eBay features are in demo mode — market search and publish use simulated data.
-                Add your Gemini key for real AI analysis and Supabase keys to save inventory to the cloud.
+                eBay API is connected — live market research and one-click publish are available.
               </AlertDescription>
             </Alert>
           )}
@@ -192,7 +204,7 @@ function SettingsContent() {
               </div>
               <Separator className="my-4" />
               <p className="text-xs text-muted-foreground">
-                No eBay developer account? That&apos;s fine — skip the eBay keys. Market research and publish still work with demo data.
+                No eBay developer account? Skip the eBay keys entirely — use Copy to eBay Kit for manual listing.
                 For Supabase, run both SQL migrations in your project SQL editor after adding the keys.
               </p>
             </CardContent>
@@ -203,9 +215,10 @@ function SettingsContent() {
               <CardTitle className="text-base">About ResellAI</CardTitle>
             </CardHeader>
             <CardContent className="text-sm text-muted-foreground">
-              <p>Version 1.0.0</p>
+              <p>Version 2.0.0</p>
               <p className="mt-2">
-                AI-powered eBay reseller assistant. Built with Next.js, Gemini, eBay APIs, and Supabase.
+                AI-powered eBay reseller assistant. Built with Next.js, Gemini, and Supabase.
+                Works without eBay developer keys via Copy to eBay Kit.
               </p>
             </CardContent>
           </Card>

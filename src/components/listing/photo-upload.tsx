@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useRef } from "react";
-import { Upload, X, Sparkles, ImageIcon } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+import { Upload, X, Sparkles, ImageIcon, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { enhancePhotoClientSide } from "@/lib/photoroom/client";
 import { compressImageFile } from "@/lib/image-compress";
+import { dataUrlToFile } from "@/lib/data-url";
 
 interface PhotoUploadProps {
   photos: string[];
@@ -28,6 +29,7 @@ export function PhotoUpload({
   maxPhotos = 10,
 }: PhotoUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [enhancingIndex, setEnhancingIndex] = useState<number | null>(null);
 
   const handleFiles = useCallback(
     async (files: FileList | null) => {
@@ -49,14 +51,23 @@ export function PhotoUpload({
     [maxPhotos, onAdd, onProcessingChange, photos.length]
   );
 
-  const handleEnhance = async (index: number, file?: File) => {
-    if (file) {
+  const handleEnhance = async (index: number) => {
+    const photo = photos[index];
+    if (!photo || !onEnhanced) return;
+
+    setEnhancingIndex(index);
+    try {
+      const file = dataUrlToFile(photo, `photo-${index + 1}.jpg`);
       const enhanced = await enhancePhotoClientSide(file, {
         brightness: 1.08,
         contrast: 1.12,
         whiteBackground: true,
       });
-      onEnhanced?.(index, enhanced);
+      onEnhanced(index, enhanced);
+    } catch {
+      // Keep original on failure
+    } finally {
+      setEnhancingIndex(null);
     }
   };
 
@@ -67,7 +78,7 @@ export function PhotoUpload({
           "relative flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed transition-colors",
           photos.length >= maxPhotos
             ? "border-muted bg-muted/30 cursor-not-allowed"
-            : "border-primary/30 bg-primary/5 hover:border-primary/50 hover:bg-primary/10"
+            : "border-[#0064D2]/30 bg-[#0064D2]/5 hover:border-[#0064D2]/50 hover:bg-[#0064D2]/10"
         )}
         onClick={() => photos.length < maxPhotos && inputRef.current?.click()}
         onDragOver={(e) => e.preventDefault()}
@@ -85,7 +96,7 @@ export function PhotoUpload({
           onChange={(e) => handleFiles(e.target.files)}
           disabled={photos.length >= maxPhotos}
         />
-        <Upload className="mb-3 h-10 w-10 text-primary/60" />
+        <Upload className="mb-3 h-10 w-10 text-[#0064D2]/60" />
         <p className="text-sm font-medium">Drop photos here or tap to upload</p>
         <p className="mt-1 text-xs text-muted-foreground">
           {photos.length}/{maxPhotos} photos · JPG, PNG, WEBP
@@ -118,12 +129,17 @@ export function PhotoUpload({
                     size="sm"
                     variant="secondary"
                     className="h-7 text-xs"
+                    disabled={enhancingIndex === index}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onEnhanced?.(index, photo);
+                      handleEnhance(index);
                     }}
                   >
-                    <Sparkles className="mr-1 h-3 w-3" />
+                    {enhancingIndex === index ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-1 h-3 w-3" />
+                    )}
                     Enhance
                   </Button>
                 </div>
@@ -147,7 +163,7 @@ export function PhotoUpload({
               <button
                 type="button"
                 onClick={() => inputRef.current?.click()}
-                className="flex aspect-square flex-col items-center justify-center rounded-xl border-2 border-dashed border-muted-foreground/30 text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                className="flex aspect-square flex-col items-center justify-center rounded-xl border-2 border-dashed border-muted-foreground/30 text-muted-foreground transition-colors hover:border-[#0064D2]/40 hover:text-[#0064D2]"
               >
                 <ImageIcon className="mb-1 h-6 w-6" />
                 <span className="text-xs">Add more</span>

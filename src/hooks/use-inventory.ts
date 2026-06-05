@@ -114,9 +114,34 @@ export function useInventory() {
     [listings, persist]
   );
 
+  const updateListingStatus = useCallback(
+    async (id: string, status: ListingStatus) => {
+      try {
+        const res = await fetch("/api/inventory", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, status }),
+        });
+        const data = await res.json();
+        if (data.listing) {
+          persist(listings.map((l) => (l.id === id ? { ...l, ...data.listing, status } : l)));
+          return;
+        }
+      } catch {
+        // Fall through to local update
+      }
+      persist(
+        listings.map((l) =>
+          l.id === id ? { ...l, status, updated_at: new Date().toISOString() } : l
+        )
+      );
+    },
+    [listings, persist]
+  );
+
   useEffect(() => {
     fetchListings();
   }, [fetchListings]);
 
-  return { listings, loading, fetchListings, saveListing, deleteListing };
+  return { listings, loading, fetchListings, saveListing, deleteListing, updateListingStatus };
 }

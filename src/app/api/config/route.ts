@@ -22,6 +22,7 @@ export async function GET() {
     photoroom: Boolean(process.env.PHOTOROOM_API_KEY?.trim()),
     supabase: isSupabaseConfigured(),
     supabaseStorage: isSupabaseStorageReady(),
-    demoMode: !isAIConfigured() && !isEbayConfigured(),
+    demoMode: !isEbayConfigured(),
+    ebayConfigured: isEbayConfigured(),
   });
 }

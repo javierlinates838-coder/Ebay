@@ -8,7 +8,7 @@ import type { ListingStatus } from "@/types";
 import { toast } from "sonner";
 
 export default function InventoryPage() {
-  const { listings, loading, fetchListings, deleteListing } = useInventory();
+  const { listings, loading, deleteListing, updateListingStatus } = useInventory();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ListingStatus | null>(null);
 
@@ -23,6 +23,11 @@ export default function InventoryPage() {
   const handleDelete = async (id: string) => {
     await deleteListing(id);
     toast.success("Listing deleted");
+  };
+
+  const handleMarkSold = async (id: string) => {
+    await updateListingStatus(id, "sold");
+    toast.success("Marked as sold");
   };
 
   return (
@@ -42,6 +47,7 @@ export default function InventoryPage() {
               onSearch={setSearch}
               onStatusFilter={setStatusFilter}
               onDelete={handleDelete}
+              onMarkSold={handleMarkSold}
               activeStatus={statusFilter}
             />
           )}

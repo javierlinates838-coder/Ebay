@@ -1,3 +1,9 @@
+export function dataUrlToFile(dataUrl: string, filename = "photo.jpg"): File {
+  const blob = dataUrlToBlob(dataUrl);
+  const ext = blob.type.includes("png") ? "png" : "jpg";
+  return new File([blob], filename.replace(/\.\w+$/, `.${ext}`), { type: blob.type });
+}
+
 export function dataUrlToBlob(dataUrl: string): Blob {
   const [header, base64] = dataUrl.split(",");
   const mime = header.match(/:(.*?);/)?.[1] || "image/jpeg";

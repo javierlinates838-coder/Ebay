@@ -4,11 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { dataUrlToBlob } from "@/lib/data-url";
 import type {
   GeneratedListing,
+  Listing,
   MarketResearch,
   PricingRecommendation,
   ProductAnalysis,
   ProfitBreakdown,
 } from "@/types";
+
+export type MarketResearchSource = "ebay-live" | "ai-estimate" | "demo";
 
 export type ListingStep = "photos" | "analysis" | "market" | "listing" | "profit" | "review";
 
@@ -19,6 +22,7 @@ export interface ListingWorkflowState {
   analysis: ProductAnalysis | null;
   analysisSource: "gemini" | "openai" | "demo" | null;
   analysisWarning: string | null;
+  marketSource: MarketResearchSource | null;
   market: MarketResearch | null;
   pricing: PricingRecommendation | null;
   generatedListing: GeneratedListing | null;
@@ -36,6 +40,7 @@ const initialState: ListingWorkflowState = {
   analysis: null,
   analysisSource: null,
   analysisWarning: null,
+  marketSource: null,
   market: null,
   pricing: null,
   generatedListing: null,
@@ -115,13 +120,13 @@ export function useListingWorkflow() {
     }
   }, []);
 
-  const researchMarket = useCallback(async (query: string) => {
+  const researchMarket = useCallback(async (query: string, analysis?: ProductAnalysis | null) => {
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
       const res = await fetch("/api/ebay/market-research", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({ query, analysis }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Market research failed");
@@ -130,11 +135,12 @@ export function useListingWorkflow() {
         ...s,
         market: data.market,
         pricing: data.pricing,
+        marketSource: data.source ?? "demo",
         listingPrice: data.market.suggestedListingPrice,
         step: "market",
         loading: false,
       }));
-      return { market: data.market, pricing: data.pricing };
+      return { market: data.market, pricing: data.pricing, source: data.source };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Market research failed";
       setState((s) => ({ ...s, loading: false, error: message }));
@@ -230,6 +236,34 @@ export function useListingWorkflow() {
     setState((s) => ({ ...s, analysis }));
   }, []);
 
+  const updateGeneratedListing = useCallback((updates: Partial<GeneratedListing>) => {
+    setState((s) =>
+      s.generatedListing
+        ? { ...s, generatedListing: { ...s.generatedListing, ...updates } }
+        : s
+    );
+  }, []);
+
+  const loadFromListing = useCallback((listing: Listing) => {
+    setState({
+      step: listing.generated_listing ? "review" : listing.market_research ? "market" : listing.product_analysis ? "analysis" : "photos",
+      photos: listing.photos || [],
+      enhancedPhotos: listing.enhanced_photos || [],
+      analysis: listing.product_analysis,
+      analysisSource: null,
+      analysisWarning: null,
+      marketSource: null,
+      market: listing.market_research,
+      pricing: listing.pricing,
+      generatedListing: listing.generated_listing,
+      profit: listing.profit,
+      costOfGoods: listing.cost_of_goods || 0,
+      listingPrice: listing.listing_price || listing.market_research?.suggestedListingPrice || 0,
+      loading: false,
+      error: null,
+    });
+  }, []);
+
   const reset = useCallback(() => setState(initialState), []);
 
   const updateListingPrice = useCallback((price: number) => {
@@ -247,6 +281,8 @@ export function useListingWorkflow() {
     calculateProfit,
     enhancePhoto,
     updateAnalysis,
+    updateGeneratedListing,
+    loadFromListing,
     reset,
     updateListingPrice,
     setState,

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Search, MoreHorizontal, Trash2, ExternalLink } from "lucide-react";
+import { Search, MoreHorizontal, Trash2, ExternalLink, Pencil, CheckCircle2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatCurrency } from "@/lib/profit-calculator";
@@ -27,6 +28,7 @@ interface InventoryTableProps {
   onSearch: (query: string) => void;
   onStatusFilter: (status: ListingStatus | null) => void;
   onDelete: (id: string) => void;
+  onMarkSold?: (id: string) => void;
   activeStatus?: ListingStatus | null;
 }
 
@@ -35,6 +37,7 @@ export function InventoryTable({
   onSearch,
   onStatusFilter,
   onDelete,
+  onMarkSold,
   activeStatus,
 }: InventoryTableProps) {
   const statuses: (ListingStatus | null)[] = [null, "draft", "listed", "sold", "shipped"];
@@ -56,7 +59,10 @@ export function InventoryTable({
               key={status ?? "all"}
               variant={activeStatus === status ? "default" : "outline"}
               size="sm"
-              className="shrink-0 rounded-full"
+              className={cn(
+                "shrink-0 rounded-full",
+                activeStatus === status && "bg-[#0064D2] hover:bg-[#0053b3]"
+              )}
               onClick={() => onStatusFilter(status)}
             >
               {status ? status.charAt(0).toUpperCase() + status.slice(1) : "All"}
@@ -68,7 +74,7 @@ export function InventoryTable({
       {listings.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed py-16 text-center">
           <p className="text-muted-foreground">No listings found</p>
-          <Link href="/list" className={cn(buttonVariants(), "mt-4")}>
+          <Link href="/list" className={cn(buttonVariants(), "mt-4 rounded-xl bg-[#0064D2] hover:bg-[#0053b3]")}>
             Create your first listing
           </Link>
         </div>
@@ -126,20 +132,38 @@ export function InventoryTable({
                   <MoreHorizontal className="h-4 w-4" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  {listing.ebay_item_id && (
+                  {listing.status === "draft" && (
                     <DropdownMenuItem
-                      render={
-                        <a
-                          href={`https://www.ebay.com/itm/${listing.ebay_item_id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        />
-                      }
+                      render={<Link href={`/list?draft=${listing.id}`} />}
                     >
-                      <ExternalLink className="mr-2 h-4 w-4" />
-                      View on eBay
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Resume Draft
                     </DropdownMenuItem>
                   )}
+                  {(listing.status === "listed" || listing.status === "draft") && onMarkSold && (
+                    <DropdownMenuItem onClick={() => onMarkSold(listing.id)}>
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                      Mark as Sold
+                    </DropdownMenuItem>
+                  )}
+                  {listing.ebay_item_id && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        render={
+                          <a
+                            href={`https://www.ebay.com/itm/${listing.ebay_item_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          />
+                        }
+                      >
+                        <ExternalLink className="mr-2 h-4 w-4" />
+                        View on eBay
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="text-destructive"
                     onClick={() => onDelete(listing.id)}

@@ -1,18 +1,28 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { TrendingUp, TrendingDown, Minus, DollarSign } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, DollarSign, Sparkles } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/profit-calculator";
+import { cn } from "@/lib/utils";
 import type { MarketResearch, PricingRecommendation } from "@/types";
 
 interface MarketResearchCardProps {
   market: MarketResearch;
   pricing: PricingRecommendation;
+  source?: "ebay-live" | "ai-estimate" | "demo";
+  selectedPrice?: number;
+  onSelectPrice?: (price: number) => void;
 }
 
-export function MarketResearchCard({ market, pricing }: MarketResearchCardProps) {
+export function MarketResearchCard({
+  market,
+  pricing,
+  source = "demo",
+  selectedPrice,
+  onSelectPrice,
+}: MarketResearchCardProps) {
   const TrendIcon =
     market.recentSalesTrend === "up"
       ? TrendingUp
@@ -27,6 +37,13 @@ export function MarketResearchCard({ market, pricing }: MarketResearchCardProps)
         ? "text-red-600"
         : "text-muted-foreground";
 
+  const sourceLabel =
+    source === "ebay-live"
+      ? "Live eBay data"
+      : source === "ai-estimate"
+        ? "AI price estimate"
+        : "Demo estimate";
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -35,21 +52,32 @@ export function MarketResearchCard({ market, pricing }: MarketResearchCardProps)
     >
       <Card className="border-0 shadow-lg">
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-lg">Market Research</CardTitle>
-            <Badge variant="outline" className={`gap-1 ${trendColor}`}>
-              <TrendIcon className="h-3 w-3" />
-              {market.recentSalesTrend}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="gap-1 text-xs">
+                {source === "ai-estimate" && <Sparkles className="h-3 w-3" />}
+                {sourceLabel}
+              </Badge>
+              <Badge variant="outline" className={`gap-1 ${trendColor}`}>
+                <TrendIcon className="h-3 w-3" />
+                {market.recentSalesTrend}
+              </Badge>
+            </div>
           </div>
+          {source === "ai-estimate" && (
+            <p className="text-xs text-muted-foreground">
+              Gemini estimated these prices — not live sold data. Use as a starting point.
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[
-              { label: "Average Sold", value: formatCurrency(market.averageSoldPrice) },
-              { label: "Highest Sold", value: formatCurrency(market.highestSoldPrice) },
-              { label: "Lowest Sold", value: formatCurrency(market.lowestSoldPrice) },
-              { label: "Comps Found", value: market.numberSold.toString() },
+              { label: "Average", value: formatCurrency(market.averageSoldPrice) },
+              { label: "Highest", value: formatCurrency(market.highestSoldPrice) },
+              { label: "Lowest", value: formatCurrency(market.lowestSoldPrice) },
+              { label: "Comps", value: market.numberSold.toString() },
             ].map(({ label, value }) => (
               <div key={label} className="rounded-xl bg-muted/50 p-3 text-center">
                 <p className="text-xs text-muted-foreground">{label}</p>
@@ -80,6 +108,7 @@ export function MarketResearchCard({ market, pricing }: MarketResearchCardProps)
       <Card className="border-0 shadow-lg">
         <CardHeader>
           <CardTitle className="text-lg">AI Pricing Engine</CardTitle>
+          <p className="text-xs text-muted-foreground">Tap a price to use it for your listing</p>
           {pricing.underpricedOpportunity && (
             <Badge className="w-fit bg-green-600">Underpriced Opportunity</Badge>
           )}
@@ -91,11 +120,19 @@ export function MarketResearchCard({ market, pricing }: MarketResearchCardProps)
               { label: "Market", price: pricing.market, desc: "Balanced" },
               { label: "Quick Sale", price: pricing.quickSale, desc: "Fast turnover" },
             ].map(({ label, price, desc }) => (
-              <div key={label} className="rounded-xl border p-4 text-center">
+              <button
+                key={label}
+                type="button"
+                onClick={() => onSelectPrice?.(price)}
+                className={cn(
+                  "rounded-xl border p-4 text-center transition-all hover:border-primary hover:bg-primary/5",
+                  selectedPrice === price && "border-primary bg-primary/10 ring-2 ring-primary/20"
+                )}
+              >
                 <p className="text-xs font-medium uppercase text-muted-foreground">{label}</p>
                 <p className="mt-1 text-2xl font-bold">{formatCurrency(price)}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{desc}</p>
-              </div>
+              </button>
             ))}
           </div>
           <p className="text-sm text-muted-foreground">{pricing.reasoning}</p>
@@ -105,7 +142,9 @@ export function MarketResearchCard({ market, pricing }: MarketResearchCardProps)
       {market.soldComps.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Recent Sold Comps</CardTitle>
+            <CardTitle className="text-base">
+              {source === "ai-estimate" ? "Estimated Comps" : "Recent Comps"}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
