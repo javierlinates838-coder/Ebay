@@ -1,67 +1,39 @@
-import { generateObject, generateText, type LanguageModel } from "ai";
+import { generateText, type LanguageModel } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { openai } from "@ai-sdk/openai";
-import { z } from "zod";
 import type { ProductAnalysis } from "@/types";
 import {
-  CATEGORY_EXPERT_PROMPTS,
-  CATEGORY_SCOUT_PROMPT,
-  DEEP_ANALYSIS_JSON_INSTRUCTION,
-  OCR_PROMPT,
-  REFINE_PROMPT,
-  type ProductCategory,
+  BRAND_RESCUE_PROMPT,
+  DESCRIBE_PROMPT,
+  JSON_SCHEMA_INSTRUCTION,
+  STRUCTURE_PROMPT,
 } from "@/lib/ai/analysis-prompts";
 import { preparePhotosForVision } from "@/lib/ai/image-prep-server";
 
-const MAX_PHOTOS = 5;
-const REFINE_CONFIDENCE_THRESHOLD = 75;
+const MAX_PHOTOS = 4;
 
-const VALID_CATEGORIES: ProductCategory[] = [
-  "footwear",
-  "clothing",
-  "electronics",
-  "sporting",
-  "collectibles",
-  "home",
-  "accessories",
-  "general",
+const KNOWN_BRANDS: { re: RegExp; brand: string }[] = [
+  { re: /\bnike\b|swoosh/i, brand: "Nike" },
+  { re: /\badidas\b|three stripes/i, brand: "Adidas" },
+  { re: /\bjordan\b|jumpman/i, brand: "Jordan" },
+  { re: /\bnew balance\b|\bNB\b/i, brand: "New Balance" },
+  { re: /\bpuma\b/i, brand: "Puma" },
+  { re: /\bunder armour\b|\bUA\b/i, brand: "Under Armour" },
+  { re: /\breebok\b/i, brand: "Reebok" },
+  { re: /\basics\b/i, brand: "ASICS" },
+  { re: /\bmizuno\b/i, brand: "Mizuno" },
+  { re: /\bconverse\b/i, brand: "Converse" },
+  { re: /\bvans\b/i, brand: "Vans" },
+  { re: /\bskechers\b/i, brand: "Skechers" },
+  { re: /\bcolumbia\b/i, brand: "Columbia" },
+  { re: /\bpatagonia\b/i, brand: "Patagonia" },
+  { re: /\bapple\b|\biphone\b|\bipad\b|\bmacbook\b/i, brand: "Apple" },
+  { re: /\bsamsung\b/i, brand: "Samsung" },
+  { re: /\bsony\b|\bplaystation\b|\bps5\b|\bps4\b/i, brand: "Sony" },
+  { re: /\bnintendo\b|\bswitch\b/i, brand: "Nintendo" },
+  { re: /\blouis vuitton\b|\bLV\b/i, brand: "Louis Vuitton" },
+  { re: /\bgucci\b/i, brand: "Gucci" },
 ];
-
-const scoutSchema = z.object({
-  category: z.string(),
-  brandHint: z.string(),
-  hasReadableTags: z.boolean(),
-  visualSummary: z.string(),
-});
-
-const deepAnalysisSchema = z.object({
-  product: z.string(),
-  brand: z.string(),
-  model: z.string(),
-  color: z.string(),
-  size: z.string().optional(),
-  gender: z.string().optional(),
-  material: z.string().optional(),
-  productType: z.string().optional(),
-  condition: z.string(),
-  category: z.string(),
-  confidence: z.number(),
-  itemSpecifics: z.record(z.string(), z.string()),
-  identificationNotes: z.string(),
-  conditionNotes: z.string(),
-  searchQuery: z.string(),
-  visibleText: z.array(z.string()),
-  defects: z.array(z.string()).optional(),
-  ebayTitleSuggestion: z.string().optional(),
-  compsKeywords: z.array(z.string()).optional(),
-});
-
-interface ScoutResult {
-  category: ProductCategory;
-  brandHint: string;
-  hasReadableTags: boolean;
-  visualSummary: string;
-}
 
 function getGeminiApiKey(): string | undefined {
   return (
@@ -78,7 +50,7 @@ function isOpenAIConfigured(): boolean {
   return Boolean(process.env.OPENAI_API_KEY?.trim());
 }
 
-function getAnalysisModels(): string[] {
+function getVisionModels(): string[] {
   const primary =
     process.env.GEMINI_VISION_MODEL?.trim() ||
     process.env.GEMINI_ANALYSIS_MODEL?.trim() ||
@@ -106,7 +78,10 @@ function geminiOptions() {
 
 function toVisionContent(imageUrls: string[]) {
   return [
-    { type: "text" as const, text: `${imageUrls.length} product photo(s):` },
+    {
+      type: "text" as const,
+      text: `${imageUrls.length} product photo(s) — examine ALL of them:`,
+    },
     ...imageUrls.map((url) => {
       const match = url.match(/^data:(image\/[^;]+);base64,/);
       return {
@@ -133,7 +108,7 @@ function extractJson(text: string): unknown {
     try {
       return JSON.parse(fenced[1].trim());
     } catch {
-      /* try next */
+      /* continue */
     }
   }
   const match = text.match(/\{[\s\S]*\}/);
@@ -143,27 +118,23 @@ function extractJson(text: string): unknown {
   throw new Error("No JSON in model response");
 }
 
-function normalizeCategory(raw: string): ProductCategory {
-  const lower = raw.toLowerCase().trim();
-  const found = VALID_CATEGORIES.find((c) => lower.includes(c));
-  return found ?? "general";
-}
-
-function parseAnalysis(data: unknown, scout?: ScoutResult): ProductAnalysis {
+function parseAnalysis(data: unknown): ProductAnalysis {
   const obj = (typeof data === "object" && data !== null ? data : {}) as Record<
     string,
     unknown
   >;
 
-  const brand = String(
-    obj.brand ?? obj.manufacturer ?? scout?.brandHint ?? "Unknown"
-  ).trim();
+  const brand = String(obj.brand ?? obj.manufacturer ?? "Unknown").trim();
   const product = String(obj.product ?? obj.name ?? "Unknown product").trim();
   const model = String(obj.model ?? obj.style ?? "Not visible").trim();
   const color = String(obj.color ?? obj.colour ?? "Unknown").trim();
+  const productType = String(obj.productType ?? obj.product_type ?? "").trim();
+
   const searchQuery =
     String(obj.searchQuery ?? obj.search_query ?? "").trim() ||
-    [brand, model, product].filter((p) => !["Unknown", "Not visible"].includes(p)).join(" ");
+    [brand, model, productType, product]
+      .filter((p) => p && !["Unknown", "Not visible"].includes(p))
+      .join(" ");
 
   const rawSpecifics = obj.itemSpecifics ?? obj.item_specifics;
   const itemSpecifics =
@@ -194,16 +165,14 @@ function parseAnalysis(data: unknown, scout?: ScoutResult): ProductAnalysis {
     size: String(obj.size ?? "").trim() || undefined,
     gender: String(obj.gender ?? "").trim() || undefined,
     material: String(obj.material ?? "").trim() || undefined,
-    productType: String(obj.productType ?? obj.product_type ?? "").trim() || undefined,
+    productType: productType || undefined,
     condition: normalizeCondition(String(obj.condition ?? "Good")),
-    category: String(obj.category ?? scout?.category ?? "General").trim(),
+    category: String(obj.category ?? "General").trim(),
     confidence: Math.min(100, Math.max(0, Math.round(Number(obj.confidence) || 70))),
     itemSpecifics,
     searchQuery: searchQuery || product,
     visibleText,
-    identificationNotes:
-      String(obj.identificationNotes ?? obj.notes ?? scout?.visualSummary ?? "").trim() ||
-      undefined,
+    identificationNotes: String(obj.identificationNotes ?? obj.notes ?? "").trim() || undefined,
     conditionNotes: String(obj.conditionNotes ?? "").trim() || undefined,
     defects: defects?.length ? defects : undefined,
     ebayTitleSuggestion:
@@ -212,222 +181,228 @@ function parseAnalysis(data: unknown, scout?: ScoutResult): ProductAnalysis {
   };
 }
 
-async function runCategoryScout(modelName: string, photos: string[]): Promise<ScoutResult> {
-  const model = getModel(modelName);
-  try {
-    const { object } = await generateObject({
-      model,
-      schema: scoutSchema,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: CATEGORY_SCOUT_PROMPT },
-            ...toVisionContent(photos),
-          ],
-        },
-      ],
-      maxOutputTokens: 600,
-      ...geminiOptions(),
-    });
-    return {
-      category: normalizeCategory(object.category),
-      brandHint: object.brandHint.trim() || "Unknown",
-      hasReadableTags: object.hasReadableTags,
-      visualSummary: object.visualSummary.trim(),
-    };
-  } catch {
-    const { text } = await generateText({
-      model,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: CATEGORY_SCOUT_PROMPT },
-            ...toVisionContent(photos),
-          ],
-        },
-      ],
-      maxOutputTokens: 600,
-      ...geminiOptions(),
-    });
-    const parsed = extractJson(text) as Record<string, unknown>;
-    return {
-      category: normalizeCategory(String(parsed.category ?? "general")),
-      brandHint: String(parsed.brandHint ?? "Unknown").trim(),
-      hasReadableTags: Boolean(parsed.hasReadableTags),
-      visualSummary: String(parsed.visualSummary ?? "").trim(),
-    };
-  }
+function isWeakBrand(brand: string): boolean {
+  const b = brand.toLowerCase().trim();
+  return !b || b === "unknown" || b === "unbranded" || b === "generic";
 }
 
-async function runOCR(modelName: string, photos: string[]): Promise<string> {
+function isGenericProduct(product: string, productType?: string): boolean {
+  const text = `${product} ${productType ?? ""}`.toLowerCase();
+  return (
+    /^(shoes?|footwear|sneakers?|cleats?|item|product|unknown)/.test(text.trim()) ||
+    text === "unknown product" ||
+    (text.includes("shoe") && !text.includes("cleat") && !text.includes("sneaker") && !text.includes("boot"))
+  );
+}
+
+function detectBrandFromText(...sources: string[]): string | null {
+  const combined = sources.filter(Boolean).join(" ");
+  for (const { re, brand } of KNOWN_BRANDS) {
+    if (re.test(combined)) return brand;
+  }
+  return null;
+}
+
+function enrichFromEvidence(
+  analysis: ProductAnalysis,
+  report: string
+): ProductAnalysis {
+  const corpus = [
+    report,
+    analysis.identificationNotes ?? "",
+    analysis.visibleText?.join(" ") ?? "",
+    analysis.product,
+    analysis.model,
+    JSON.stringify(analysis.itemSpecifics),
+  ].join(" ");
+
+  let { brand, product, productType, confidence } = analysis;
+  const { model } = analysis;
+
+  if (isWeakBrand(brand)) {
+    const detected = detectBrandFromText(corpus);
+    if (detected) {
+      brand = detected;
+      confidence = Math.max(confidence, 82);
+    }
+  }
+
+  const lower = corpus.toLowerCase();
+
+  if (isGenericProduct(product, productType)) {
+    if (/baseball cleat|metal (spike|cleat)|baseball spike/i.test(lower)) {
+      productType = productType || "Baseball Cleats";
+      const metal = /metal (spike|cleat)/i.test(lower) ? "Metal " : "";
+      if (!isWeakBrand(brand)) {
+        product = `${brand} ${metal}Baseball Cleats`.replace(/\s+/g, " ").trim();
+      } else {
+        product = `${metal}Baseball Cleats`.trim();
+      }
+      confidence = Math.max(confidence, 78);
+    } else if (/basketball shoe|basketball sneaker/i.test(lower)) {
+      productType = productType || "Basketball Shoes";
+      if (!isWeakBrand(brand)) product = `${brand} Basketball Shoes`;
+      confidence = Math.max(confidence, 75);
+    } else if (/running shoe|trainer/i.test(lower)) {
+      productType = productType || "Running Shoes";
+      if (!isWeakBrand(brand)) product = `${brand} Running Shoes`;
+      confidence = Math.max(confidence, 75);
+    } else if (/football cleat|soccer cleat/i.test(lower)) {
+      productType = productType || "Cleats";
+      confidence = Math.max(confidence, 75);
+    }
+  }
+
+  if (/nike/i.test(corpus) && isWeakBrand(brand)) {
+    brand = "Nike";
+    confidence = Math.max(confidence, 85);
+  }
+
+  const searchQuery =
+    analysis.searchQuery ||
+    [brand, productType, model, product, analysis.color]
+      .filter((p) => p && !["Unknown", "Not visible"].includes(p))
+      .join(" ");
+
+  const ebayTitleSuggestion =
+    analysis.ebayTitleSuggestion ||
+    [brand, model !== "Not visible" ? model : productType, analysis.color, analysis.size]
+      .filter(Boolean)
+      .join(" ")
+      .slice(0, 80);
+
+  return {
+    ...analysis,
+    brand,
+    product,
+    productType,
+    model,
+    confidence,
+    searchQuery,
+    ebayTitleSuggestion: ebayTitleSuggestion || analysis.ebayTitleSuggestion,
+    itemSpecifics: {
+      ...analysis.itemSpecifics,
+      ...(brand && !isWeakBrand(brand) ? { Brand: brand } : {}),
+      ...(productType ? { Type: productType } : {}),
+    },
+  };
+}
+
+async function describeProduct(modelName: string, photos: string[]): Promise<string> {
   const model = getModel(modelName);
   const { text } = await generateText({
     model,
     messages: [
       {
         role: "user",
-        content: [{ type: "text", text: OCR_PROMPT }, ...toVisionContent(photos)],
+        content: [{ type: "text", text: DESCRIBE_PROMPT }, ...toVisionContent(photos)],
       },
     ],
-    maxOutputTokens: 1500,
+    maxOutputTokens: 3000,
     ...geminiOptions(),
   });
-  return text.trim();
-}
 
-function buildDeepPrompt(scout: ScoutResult, ocrText: string): string {
-  const expert = CATEGORY_EXPERT_PROMPTS[scout.category];
-  return `${expert}
-
-SCOUT REPORT:
-- Category: ${scout.category}
-- Brand hint: ${scout.brandHint}
-- Tags readable: ${scout.hasReadableTags}
-- Visual summary: ${scout.visualSummary}
-
-OCR / TAG TRANSCRIPTION:
-${ocrText || "(No readable text — rely on logos, shapes, and colors)"}
-
-${DEEP_ANALYSIS_JSON_INSTRUCTION}`;
-}
-
-async function runDeepAnalysis(
-  modelName: string,
-  photos: string[],
-  scout: ScoutResult,
-  ocrText: string
-): Promise<ProductAnalysis> {
-  const model = getModel(modelName);
-  const prompt = buildDeepPrompt(scout, ocrText);
-
-  try {
-    const { object } = await generateObject({
-      model,
-      schema: deepAnalysisSchema,
-      messages: [
-        {
-          role: "user",
-          content: [{ type: "text", text: prompt }, ...toVisionContent(photos)],
-        },
-      ],
-      maxOutputTokens: 2500,
-      ...geminiOptions(),
-    });
-    return parseAnalysis(object, scout);
-  } catch {
-    const { text } = await generateText({
-      model,
-      messages: [
-        {
-          role: "user",
-          content: [{ type: "text", text: prompt }, ...toVisionContent(photos)],
-        },
-      ],
-      maxOutputTokens: 2500,
-      ...geminiOptions(),
-    });
-    return parseAnalysis(extractJson(text), scout);
+  const report = text.trim();
+  if (report.length < 80) {
+    throw new Error("Vision description too short");
   }
+  return report;
 }
 
-async function runRefinement(
-  modelName: string,
-  photos: string[],
-  prior: ProductAnalysis,
-  scout: ScoutResult,
-  ocrText: string
-): Promise<ProductAnalysis> {
-  const model = getModel(modelName);
-  const context = `${REFINE_PROMPT}
-
-PRIOR ANALYSIS (confidence ${prior.confidence}%):
-${JSON.stringify(prior, null, 2)}
-
-SCOUT: ${scout.visualSummary} | brand hint: ${scout.brandHint}
-OCR:
-${ocrText}
-
-${CATEGORY_EXPERT_PROMPTS[scout.category]}
-${DEEP_ANALYSIS_JSON_INSTRUCTION}`;
-
-  try {
-    const { object } = await generateObject({
-      model,
-      schema: deepAnalysisSchema,
-      messages: [
-        {
-          role: "user",
-          content: [{ type: "text", text: context }, ...toVisionContent(photos)],
-        },
-      ],
-      maxOutputTokens: 2500,
-      ...geminiOptions(),
-    });
-    const refined = parseAnalysis(object, scout);
-    return refined.confidence >= prior.confidence ? refined : prior;
-  } catch {
-    return prior;
-  }
-}
-
-const FALLBACK_PROMPT = `You are an expert eBay reseller identifying a product from photos.
-
-Look at every photo. Identify the item for an eBay listing.
-
-Rules:
-- Be SPECIFIC: "Nike Alpha Huarache Elite 4 Metal Baseball Cleats" not "shoes"
-- Brand from visible logos/tags (Nike swoosh = Nike)
-- Include all colors in the colorway
-- Condition: New, Like New, Good, Fair, or Poor
-- Quote text you read from tags in visibleText
-- searchQuery: best eBay sold-comp search (brand + product type + color)
-- confidence 85+ when brand logo AND product type are obvious
-
-Respond with ONLY valid JSON (no markdown):
-{"product":"","brand":"","model":"","color":"","size":"","gender":"","material":"","productType":"","condition":"Good","category":"","confidence":85,"itemSpecifics":{},"identificationNotes":"","conditionNotes":"","searchQuery":"","visibleText":[],"defects":[],"ebayTitleSuggestion":"","compsKeywords":[]}`;
-
-async function runSinglePassFallback(
-  modelName: string,
-  photos: string[]
-): Promise<ProductAnalysis> {
+async function structureReport(modelName: string, report: string): Promise<ProductAnalysis> {
   const model = getModel(modelName);
   const { text } = await generateText({
     model,
-    messages: [
-      {
-        role: "user",
-        content: [{ type: "text", text: FALLBACK_PROMPT }, ...toVisionContent(photos)],
-      },
-    ],
+    messages: [{ role: "user", content: STRUCTURE_PROMPT(report) }],
     maxOutputTokens: 2000,
     ...geminiOptions(),
   });
   return parseAnalysis(extractJson(text));
 }
 
-async function runMultiPhaseAnalysis(
+async function rescueBrand(modelName: string, photos: string[]): Promise<Partial<ProductAnalysis>> {
+  const model = getModel(modelName);
+  const { text } = await generateText({
+    model,
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: BRAND_RESCUE_PROMPT }, ...toVisionContent(photos)],
+      },
+    ],
+    maxOutputTokens: 400,
+    ...geminiOptions(),
+  });
+
+  const obj = extractJson(text) as Record<string, unknown>;
+  return {
+    brand: String(obj.brand ?? "").trim() || undefined,
+    productType: String(obj.productType ?? obj.product_type ?? "").trim() || undefined,
+    model: String(obj.modelHint ?? obj.model ?? "").trim() || undefined,
+    color: String(obj.colors ?? obj.color ?? "").trim() || undefined,
+    confidence: Math.round(Number(obj.confidence) || 80),
+  };
+}
+
+async function runDescribeThenStructure(
   modelName: string,
   photos: string[]
 ): Promise<ProductAnalysis> {
-  const [scout, ocrText] = await Promise.all([
-    runCategoryScout(modelName, photos),
-    runOCR(modelName, photos),
-  ]);
+  const report = await describeProduct(modelName, photos);
+  console.info(`[AI] Vision report (${report.length} chars) via ${modelName}`);
 
-  console.info(
-    `[AI] Scout: ${scout.category}, brand=${scout.brandHint}, tags=${scout.hasReadableTags}`
-  );
+  let analysis = await structureReport(modelName, report);
+  analysis = enrichFromEvidence(analysis, report);
 
-  let analysis = await runDeepAnalysis(modelName, photos, scout, ocrText);
-
-  if (analysis.confidence < REFINE_CONFIDENCE_THRESHOLD) {
-    console.info(`[AI] Refining (confidence ${analysis.confidence}%)`);
-    analysis = await runRefinement(modelName, photos, analysis, scout, ocrText);
+  if (isWeakBrand(analysis.brand) || isGenericProduct(analysis.product, analysis.productType)) {
+    console.info("[AI] Running brand/type rescue pass");
+    try {
+      const rescue = await rescueBrand(modelName, photos.slice(0, 2));
+      if (rescue.brand && !isWeakBrand(rescue.brand)) {
+        analysis = enrichFromEvidence(
+          {
+            ...analysis,
+            brand: rescue.brand,
+            productType: rescue.productType || analysis.productType,
+            model: rescue.model && rescue.model !== "Not visible" ? rescue.model : analysis.model,
+            color: rescue.color && rescue.color !== "Unknown" ? rescue.color : analysis.color,
+            confidence: Math.max(analysis.confidence, rescue.confidence ?? 80),
+          },
+          `${report}\nRescue: ${JSON.stringify(rescue)}`
+        );
+      }
+    } catch (err) {
+      console.warn("[AI] Brand rescue failed:", err);
+    }
   }
 
   return analysis;
+}
+
+async function runDirectJson(modelName: string, photos: string[]): Promise<ProductAnalysis> {
+  const model = getModel(modelName);
+  const { text } = await generateText({
+    model,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `${DESCRIBE_PROMPT}\n\nThen output JSON:\n${JSON_SCHEMA_INSTRUCTION}`,
+          },
+          ...toVisionContent(photos),
+        ],
+      },
+    ],
+    maxOutputTokens: 3500,
+    ...geminiOptions(),
+  });
+
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("No JSON in direct response");
+  const analysis = parseAnalysis(extractJson(jsonMatch[0]));
+  return enrichFromEvidence(analysis, text);
 }
 
 export async function runProductAnalysis(imageUrls: string[]): Promise<ProductAnalysis> {
@@ -435,35 +410,30 @@ export async function runProductAnalysis(imageUrls: string[]): Promise<ProductAn
   if (!raw.length) throw new Error("No photos provided");
 
   const photos = await preparePhotosForVision(raw);
-  const models = getAnalysisModels();
+  const models = getVisionModels();
   let lastError: unknown;
 
   for (const modelName of models) {
     try {
-      return await runMultiPhaseAnalysis(modelName, photos);
+      return await runDescribeThenStructure(modelName, photos);
     } catch (err) {
       lastError = err;
-      console.warn(`[AI] Multi-phase failed (${modelName}):`, err);
+      console.warn(`[AI] Describe→structure failed (${modelName}):`, err);
     }
 
     try {
-      return await runSinglePassFallback(modelName, photos);
+      return await runDirectJson(modelName, photos);
     } catch (err) {
       lastError = err;
-      console.warn(`[AI] Single-pass fallback failed (${modelName}):`, err);
+      console.warn(`[AI] Direct JSON failed (${modelName}):`, err);
     }
   }
 
   if (photos.length > 1) {
-    const one = [photos[0]];
+    const subset = photos.slice(0, 2);
     for (const modelName of models.slice(0, 1)) {
       try {
-        return await runMultiPhaseAnalysis(modelName, one);
-      } catch (err) {
-        lastError = err;
-      }
-      try {
-        return await runSinglePassFallback(modelName, one);
+        return await runDescribeThenStructure(modelName, subset);
       } catch (err) {
         lastError = err;
       }

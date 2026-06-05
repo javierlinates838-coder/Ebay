@@ -1,146 +1,89 @@
-export type ProductCategory =
-  | "footwear"
-  | "clothing"
-  | "electronics"
-  | "collectibles"
-  | "home"
-  | "sporting"
-  | "accessories"
-  | "general";
+/** Step 1: pure observation — no JSON, no schema pressure */
+export const DESCRIBE_PROMPT = `You are a senior eBay authenticator who identifies products from photos for resale listings.
 
-export const CATEGORY_SCOUT_PROMPT = `You are classifying a product photo for an eBay reseller app.
+Study EVERY attached photo before writing. Many resellers photograph the same item from multiple angles — combine all views.
 
-Look at ALL photos and pick the single best category:
-- footwear (shoes, cleats, sneakers, boots, sandals)
-- clothing (shirts, jackets, pants, dresses, hats)
-- electronics (phones, tablets, laptops, cameras, consoles, headphones)
-- sporting (bats, gloves, balls, gym equipment, not footwear)
-- collectibles (cards, figures, vintage, memorabilia, coins)
-- home (kitchen, decor, tools, appliances, furniture)
-- accessories (bags, wallets, watches, jewelry, belts)
-- general (if none fit)
+Write a detailed identification report in plain English with these sections:
 
-Also note: primary brand if logo visible, and whether tag/label text is readable.
+## Product type
+Name the EXACT item type. Examples:
+- "metal baseball cleats" NOT "shoes" or "footwear"
+- "iPhone 14 Pro" NOT "phone"
+- "Nike Dri-FIT hoodie" NOT "shirt"
 
-Respond ONLY with JSON:
-{"category":"footwear","brandHint":"Nike","hasReadableTags":true,"visualSummary":"Navy/red/yellow baseball cleats with metal spikes and Nike branding on tongue"}`;
+## Brand
+Identify brand from logos, wordmarks, tags, and packaging.
+- Nike swoosh or "NIKE" text → brand is Nike
+- Three stripes → Adidas
+- If a logo is clearly visible, NEVER write "unknown brand"
 
-export const OCR_PROMPT = `Expert OCR for eBay resellers. Transcribe EVERY readable character from product photos.
+## Model / style
+Model name, style code, or line (e.g. Alpha Huarache Elite, Air Jordan 1 Retro). Quote style numbers from tags.
 
-For each photo number, list:
-- Brand names, logos spelled out
-- Model numbers, style codes, SKUs
-- Sizes (US/EU/UK), widths
-- Care label text, country of origin, materials
-- Serial numbers, dates, athlete names, edition text
+## Colors
+List every color in the colorway (e.g. Navy / Red / Yellow).
 
-If text is blurry use [?] for uncertain chars. If no text, describe logos/colors instead.
+## Size & department
+US/EU size from tag, Men's/Women's/Youth if visible.
 
-Format as plain text with "Photo N:" headers. Be exhaustive — resellers need tag data.`;
+## Condition
+New, Like New, Good, Fair, or Poor — note scuffs, dirt, wear, missing parts. Grass on cleats is normal for used.
 
-export const CATEGORY_EXPERT_PROMPTS: Record<ProductCategory, string> = {
-  footwear: `FOOTWEAR EXPERT MODE — identify these shoes/cleats/boots for eBay.
+## All readable text
+Quote EVERY character you can read from tags, tongues, insoles, heels, boxes. Use "Photo N:" when helpful.
 
-Extract:
-- Exact type: baseball cleats, running shoes, basketball shoes, boots, etc.
-- Brand + model/line (e.g. Nike Alpha Huarache Elite, Air Jordan 1, Adidas Ultraboost)
-- Metal vs molded cleats, high-top vs low, sport
-- Full colorway name (e.g. "Navy/Red/Yellow")
-- US shoe size from tag if visible
-- Width if visible
-- Signature/edition if visible (player sig on heel, etc.)
-- Condition: grass dirt on cleats is normal for used — note scuffs, separation, odor cues
+## Visual evidence
+Cite what you see: metal spikes, signatures, logos, stitching, materials. Reference photo numbers.
 
-eBay category path must end in correct shoe subcategory.`,
+Rules:
+- Be specific and evidence-based
+- Never guess serial numbers or sizes not visible
+- Never use generic labels when specific ones apply
+- If unsure of exact model, describe the line and distinguishing features`;
 
-  clothing: `APPAREL EXPERT MODE — identify this clothing for eBay.
+/** Step 2: structure the report — text only, no images */
+export const STRUCTURE_PROMPT = (report: string) => `Convert this product identification report into eBay listing JSON.
 
-Extract:
-- Garment type (hoodie, jersey, jacket, jeans, etc.)
-- Brand + line/collection
-- Size from tag (S/M/L/XL or numeric)
-- Gender/department (Men's, Women's, Youth)
-- Material from tag (cotton, polyester blend, etc.)
-- Color/pattern
-- Vintage indicators if any`,
+IDENTIFICATION REPORT:
+${report}
 
-  electronics: `ELECTRONICS EXPERT MODE — identify this device for eBay.
+${JSON_SCHEMA_INSTRUCTION}`;
 
-Extract:
-- Device type + brand + model number (exact model from back label)
-- Storage/RAM/carrier if phone
-- Color, generation, year if known
-- Accessories visible in photos
-- Condition: screen cracks, dents, activation lock unknown = note it
-- Serial/model from label photo`,
-
-  sporting: `SPORTING GOODS EXPERT MODE — identify this sports equipment for eBay.
-
-Extract:
-- Sport + item type (bat, glove, helmet, etc.)
-- Brand + model/line
-- Size/weight specs if visible
-- Left/right hand if applicable
-- Condition including game use wear`,
-
-  collectibles: `COLLECTIBLES EXPERT MODE — identify this collectible for eBay.
-
-Extract:
-- Item type (card, figure, vintage item, etc.)
-- Brand/manufacturer, year, edition, set name
-- Graded/slabbed if visible
-- Authenticity markers
-- Condition issues`,
-
-  home: `HOME & GARDEN EXPERT MODE — identify this item for eBay.
-
-Extract:
-- Product type, brand, model if appliance/tool
-- Dimensions/capacity if visible on label
-- Material, color, condition`,
-
-  accessories: `ACCESSORIES EXPERT MODE — identify this accessory for eBay.
-
-Extract:
-- Type (handbag, watch, wallet, belt, etc.)
-- Brand + model/collection
-- Material, color, hardware color
-- Authenticity cues for luxury brands`,
-
-  general: `GENERAL PRODUCT EXPERT — identify this item for eBay resale.
-
-Be as specific as possible. Extract brand, model, color, condition, and all visible tag text.`,
-};
-
-export const DEEP_ANALYSIS_JSON_INSTRUCTION = `
-Respond with ONLY valid JSON (no markdown fences):
+export const JSON_SCHEMA_INSTRUCTION = `Respond with ONLY valid JSON (no markdown):
 {
-  "product": "Full specific product name for eBay title",
-  "brand": "Brand or Unbranded",
-  "model": "Model/style number or descriptive style name",
+  "product": "Full specific product name — never generic like 'shoes'",
+  "brand": "Brand name from report — never Unknown if logo was identified",
+  "model": "Model/style name or line",
   "color": "Full colorway",
-  "size": "Size if visible or Unknown",
-  "gender": "Men's/Women's/Youth/Unisex/Unknown",
-  "material": "Primary material if known",
+  "size": "Size if known else omit",
+  "gender": "Men's/Women's/Youth/Unisex if known else omit",
+  "material": "Material if known else omit",
+  "productType": "Exact sub-type e.g. baseball cleats, running shoes",
   "condition": "New|Like New|Good|Fair|Poor",
-  "category": "Full eBay category path",
-  "confidence": 85,
-  "itemSpecifics": {"Brand":"","Type":"","Size":"","Color":"","Sport":"","Department":""},
-  "identificationNotes": "2-3 sentences citing visual evidence from photos",
+  "category": "eBay category path",
+  "confidence": 90,
+  "itemSpecifics": {"Brand":"","Type":"","Color":"","Sport":"","Department":""},
+  "identificationNotes": "2-3 sentences citing visual evidence",
   "conditionNotes": "Specific flaws or 'No major defects noted'",
-  "searchQuery": "Best eBay sold comps search string",
-  "visibleText": ["each","tag","string"],
-  "defects": ["list","of","flaws"],
-  "ebayTitleSuggestion": "Optimized 80-char eBay title",
-  "compsKeywords": ["keyword1","keyword2"]
+  "searchQuery": "Best eBay sold comps search: brand + product type + model + color",
+  "visibleText": ["each","tag","string","from","report"],
+  "defects": [],
+  "ebayTitleSuggestion": "Keyword-rich title under 80 chars",
+  "compsKeywords": ["brand","product type","model"]
 }
 
 Rules:
-- TRUST visible logos and tags — Nike swoosh + cleats = Nike cleats, not "unknown shoes"
-- confidence 90+ when brand AND product type confirmed visually
-- Never invent serial numbers or sizes not in photos
-- itemSpecifics: fill every field you can support with evidence`;
+- Copy brand/model from the report — do not downgrade to generic terms
+- confidence 90+ when brand logo AND product type were confirmed in report
+- product field must be as specific as the report allows
+- Never invent data not in the report`;
 
-export const REFINE_PROMPT = `You previously analyzed this product but confidence was low.
-Using the scout report, OCR text, and your prior analysis, produce an IMPROVED JSON identification.
-Focus on tag text and logos you may have missed. Only increase confidence with evidence.`;
+/** Last resort when brand still Unknown — one focused vision question */
+export const BRAND_RESCUE_PROMPT = `Look at these product photos. What BRAND is shown?
+
+Check for: Nike swoosh, Adidas stripes, Jordan jumpman, New Balance N, Puma cat, Under Armour logo, Reebok vector, etc.
+
+Also identify the exact product TYPE (e.g. baseball cleats, basketball shoes, hoodie).
+
+Reply ONLY with JSON:
+{"brand":"Nike","productType":"metal baseball cleats","modelHint":"line name if visible","colors":"colorway","confidence":90}`;
