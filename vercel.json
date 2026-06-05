@@ -3,7 +3,7 @@
   "framework": "nextjs",
   "functions": {
     "src/app/api/ai/analyze-photos/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 120
     },
     "src/app/api/ai/generate-listing/route.ts": {
       "maxDuration": 60

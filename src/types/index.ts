@@ -17,6 +17,20 @@ export interface ProductAnalysis {
   searchQuery?: string;
   /** Text read from labels, tags, or packaging */
   visibleText?: string[];
+  /** Size from tag if visible (e.g. US 10, Large) */
+  size?: string;
+  /** Department / gender */
+  gender?: string;
+  /** Primary material if known */
+  material?: string;
+  /** Product sub-type (e.g. baseball cleats, running shoes) */
+  productType?: string;
+  /** Notable flaws detected in photos */
+  defects?: string[];
+  /** AI-suggested optimized eBay title */
+  ebayTitleSuggestion?: string;
+  /** Keywords for sold-comp research */
+  compsKeywords?: string[];
 }
 
 export interface MarketResearch {
