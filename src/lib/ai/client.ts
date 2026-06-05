@@ -228,8 +228,12 @@ Product: ${params.analysis.product}
 Brand: ${params.analysis.brand}
 Model: ${params.analysis.model}
 Color: ${params.analysis.color}
+${params.analysis.size ? `Size: ${params.analysis.size}` : ""}
+${params.analysis.productType ? `Type: ${params.analysis.productType}` : ""}
 Condition: ${params.analysis.condition}
 Category: ${params.analysis.category}
+${params.analysis.ebayTitleSuggestion ? `Suggested title: ${params.analysis.ebayTitleSuggestion}` : ""}
+${params.analysis.compsKeywords?.length ? `Keywords: ${params.analysis.compsKeywords.join(", ")}` : ""}
 ${params.marketPrice ? `Suggested price: $${params.marketPrice}` : ""}
 ${params.notes ? `Seller notes: ${params.notes}` : ""}
 

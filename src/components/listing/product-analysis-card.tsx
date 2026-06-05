@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Tag } from "lucide-react";
+import { AlertTriangle, Search, Sparkles, Tag } from "lucide-react";
 import type { ProductAnalysis } from "@/types";
 
 interface ProductAnalysisCardProps {
@@ -44,6 +44,13 @@ export function ProductAnalysisCard({
     onChange?.({ ...analysis, [key]: value });
   };
 
+  const extraFields = [
+    analysis.productType && { label: "Type", value: analysis.productType, key: "productType" as const },
+    analysis.size && { label: "Size", value: analysis.size, key: "size" as const },
+    analysis.gender && { label: "Department", value: analysis.gender, key: "gender" as const },
+    analysis.material && { label: "Material", value: analysis.material, key: "material" as const },
+  ].filter(Boolean) as { label: string; value: string; key: keyof ProductAnalysis }[];
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -62,7 +69,7 @@ export function ProductAnalysisCard({
               )}
               {source === "gemini" && (
                 <Badge variant="outline" className="text-xs text-[#0064D2]">
-                  Gemini Vision
+                  Gemini Pro Vision
                 </Badge>
               )}
               <Badge variant="secondary" className="font-mono">
@@ -82,6 +89,16 @@ export function ProductAnalysisCard({
             <p className="text-xs text-amber-600 dark:text-amber-400">{warning}</p>
           )}
         </CardHeader>
+
+        {analysis.ebayTitleSuggestion && (
+          <CardContent className="border-b bg-[#0064D2]/5 py-3">
+            <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-[#0064D2]">
+              <Sparkles className="h-3 w-3" />
+              Suggested eBay title
+            </p>
+            <p className="mt-1 text-sm font-medium">{analysis.ebayTitleSuggestion}</p>
+          </CardContent>
+        )}
 
         {analysis.identificationNotes && (
           <CardContent className="border-b bg-muted/30 py-3">
@@ -104,6 +121,14 @@ export function ProductAnalysisCard({
               <Field label="Brand" value={analysis.brand} onChange={(v) => updateField("brand", v)} />
               <Field label="Model" value={analysis.model} onChange={(v) => updateField("model", v)} />
               <Field label="Color" value={analysis.color} onChange={(v) => updateField("color", v)} />
+              {extraFields.map(({ label, value, key }) => (
+                <Field
+                  key={key}
+                  label={label}
+                  value={value}
+                  onChange={(v) => updateField(key, v as ProductAnalysis[typeof key])}
+                />
+              ))}
               <div className="space-y-1">
                 <Label className="text-xs uppercase tracking-wider text-muted-foreground">
                   Condition
@@ -144,6 +169,7 @@ export function ProductAnalysisCard({
               { label: "Brand", value: analysis.brand },
               { label: "Model", value: analysis.model },
               { label: "Color", value: analysis.color },
+              ...extraFields.map(({ label, value }) => ({ label, value })),
               { label: "Condition", value: analysis.condition },
               { label: "Category", value: analysis.category },
             ].map(({ label, value }) => (
@@ -157,6 +183,22 @@ export function ProductAnalysisCard({
           )}
         </CardContent>
 
+        {analysis.defects && analysis.defects.length > 0 && (
+          <CardContent className="border-t pt-4">
+            <p className="mb-2 flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <AlertTriangle className="h-3 w-3" />
+              Defects noted
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {analysis.defects.map((defect) => (
+                <Badge key={defect} variant="destructive" className="text-xs font-normal">
+                  {defect}
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        )}
+
         {analysis.visibleText && analysis.visibleText.length > 0 && (
           <CardContent className="border-t pt-4">
             <p className="mb-2 flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -167,6 +209,21 @@ export function ProductAnalysisCard({
               {analysis.visibleText.map((text) => (
                 <Badge key={text} variant="secondary" className="text-xs font-normal">
                   {text}
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        )}
+
+        {analysis.compsKeywords && analysis.compsKeywords.length > 0 && (
+          <CardContent className="border-t pt-4">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Comp search keywords
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {analysis.compsKeywords.map((kw) => (
+                <Badge key={kw} variant="outline" className="text-xs font-normal">
+                  {kw}
                 </Badge>
               ))}
             </div>
@@ -191,8 +248,8 @@ export function ProductAnalysisCard({
         {editable && (
           <CardContent className="border-t pt-4">
             <p className="text-xs text-muted-foreground">
-              Tip: Include photos of brand tags, care labels, and model numbers for best accuracy.
-              Wrong item? Edit the fields above.
+              Multi-phase AI: category scout → tag OCR → expert identification. Include tag and
+              logo photos for best results. Wrong item? Edit the fields above.
             </p>
           </CardContent>
         )}
