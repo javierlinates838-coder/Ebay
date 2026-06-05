@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useCallback, useEffect } from "react";
+import { Suspense, useState, useCallback, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -44,15 +44,12 @@ function NewListingContent() {
   const { saveListing, listings } = useInventory();
   const { state, setStep } = workflow;
 
-  const [shippingCost, setShippingCost] = useState(0);
-  const [costOfGoods, setCostOfGoods] = useState(0);
   const [marketQuery, setMarketQuery] = useState("");
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [ebayConfigured, setEbayConfigured] = useState(false);
-  const [draftLoaded, setDraftLoaded] = useState(false);
-  const [savedDraftId, setSavedDraftId] = useState<string | null>(null);
+  const loadedDraftRef = useRef<string | null>(null);
 
   useEffect(() => {
     fetch("/api/config")
@@ -62,17 +59,14 @@ function NewListingContent() {
   }, []);
 
   useEffect(() => {
-    if (!draftId || draftLoaded || !listings.length) return;
+    if (!draftId || !listings.length) return;
+    if (loadedDraftRef.current === draftId) return;
     const draft = listings.find((l) => l.id === draftId);
-    if (draft) {
-      workflow.loadFromListing(draft);
-      setCostOfGoods(draft.cost_of_goods || 0);
-      setShippingCost(draft.generated_listing?.shippingSuggestions.estimatedCost || 0);
-      setSavedDraftId(draft.id);
-      setDraftLoaded(true);
-      toast.info("Draft loaded — continue where you left off");
-    }
-  }, [draftId, draftLoaded, listings, workflow]);
+    if (!draft) return;
+    loadedDraftRef.current = draftId;
+    workflow.loadFromListing(draft);
+    toast.info("Draft loaded — continue where you left off");
+  }, [draftId, listings, workflow]);
 
   const completedSteps = [
     state.photos.length > 0 ? "photos" : null,
@@ -132,9 +126,9 @@ function NewListingContent() {
   const handleCalculateProfit = async () => {
     try {
       await workflow.calculateProfit({
-        costOfGoods,
+        costOfGoods: state.costOfGoods,
         listingPrice: state.listingPrice,
-        shippingCost,
+        shippingCost: state.shippingCost,
       });
       toast.success("Profit calculated");
     } catch {
@@ -144,7 +138,7 @@ function NewListingContent() {
 
   const buildListingPayload = useCallback(
     (status: "draft" | "listed" = "draft") => ({
-      id: savedDraftId ?? undefined,
+      id: state.savedDraftId ?? undefined,
       title: state.generatedListing?.title || state.analysis?.product || "Untitled Listing",
       description: state.generatedListing?.description,
       status,
@@ -157,18 +151,18 @@ function NewListingContent() {
       enhanced_photos: state.enhancedPhotos,
       category: state.analysis?.category,
       listing_price: state.listingPrice,
-      cost_of_goods: costOfGoods,
+      cost_of_goods: state.costOfGoods,
       keywords: state.generatedListing?.keywords,
       item_specifics: state.generatedListing?.itemSpecifics,
     }),
-    [savedDraftId, state, costOfGoods]
+    [state]
   );
 
   const handleSaveDraft = async () => {
     setSaving(true);
     try {
       const saved = await saveListing(buildListingPayload("draft"));
-      setSavedDraftId(saved.id);
+      workflow.setSavedDraftId(saved.id);
       toast.success("Draft saved to inventory");
     } catch {
       toast.error("Failed to save draft");
@@ -381,13 +375,13 @@ function NewListingContent() {
                 <ProfitCalculator
                   profit={state.profit}
                   salePrice={state.listingPrice}
-                  costOfGoods={costOfGoods}
+                  costOfGoods={state.costOfGoods}
                   shippingCost={
-                    shippingCost || state.generatedListing?.shippingSuggestions.estimatedCost || 0
+                    state.shippingCost || state.generatedListing?.shippingSuggestions.estimatedCost || 0
                   }
                   onSalePriceChange={workflow.updateListingPrice}
-                  onCostChange={setCostOfGoods}
-                  onShippingChange={setShippingCost}
+                  onCostChange={workflow.updateCostOfGoods}
+                  onShippingChange={workflow.updateShippingCost}
                   onCalculate={handleCalculateProfit}
                   loading={state.loading}
                 />

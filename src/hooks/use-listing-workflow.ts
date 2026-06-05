@@ -28,6 +28,8 @@ export interface ListingWorkflowState {
   generatedListing: GeneratedListing | null;
   profit: ProfitBreakdown | null;
   costOfGoods: number;
+  shippingCost: number;
+  savedDraftId: string | null;
   listingPrice: number;
   loading: boolean;
   error: string | null;
@@ -46,6 +48,8 @@ const initialState: ListingWorkflowState = {
   generatedListing: null,
   profit: null,
   costOfGoods: 0,
+  shippingCost: 0,
+  savedDraftId: null,
   listingPrice: 0,
   loading: false,
   error: null,
@@ -258,6 +262,8 @@ export function useListingWorkflow() {
       generatedListing: listing.generated_listing,
       profit: listing.profit,
       costOfGoods: listing.cost_of_goods || 0,
+      shippingCost: listing.generated_listing?.shippingSuggestions.estimatedCost || 0,
+      savedDraftId: listing.id,
       listingPrice: listing.listing_price || listing.market_research?.suggestedListingPrice || 0,
       loading: false,
       error: null,
@@ -268,6 +274,18 @@ export function useListingWorkflow() {
 
   const updateListingPrice = useCallback((price: number) => {
     setState((s) => ({ ...s, listingPrice: price }));
+  }, []);
+
+  const updateCostOfGoods = useCallback((costOfGoods: number) => {
+    setState((s) => ({ ...s, costOfGoods }));
+  }, []);
+
+  const updateShippingCost = useCallback((shippingCost: number) => {
+    setState((s) => ({ ...s, shippingCost }));
+  }, []);
+
+  const setSavedDraftId = useCallback((savedDraftId: string | null) => {
+    setState((s) => ({ ...s, savedDraftId }));
   }, []);
 
   return {
@@ -285,6 +303,9 @@ export function useListingWorkflow() {
     loadFromListing,
     reset,
     updateListingPrice,
+    updateCostOfGoods,
+    updateShippingCost,
+    setSavedDraftId,
     setState,
   };
 }
