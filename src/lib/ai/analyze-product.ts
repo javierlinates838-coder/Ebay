@@ -1,4 +1,4 @@
-import { generateObject, generateText, type LanguageModel } from "ai";
+import { generateObject, generateText } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
@@ -6,7 +6,9 @@ import type { ProductAnalysis } from "@/types";
 import {
   ANALYSIS_SYSTEM,
   ANALYSIS_USER,
+  LENS_ANALYSIS_USER,
   RETRY_USER,
+  STRUCTURE_FROM_RESEARCH,
 } from "@/lib/ai/analysis-prompts";
 import { preparePhotosForVision } from "@/lib/ai/image-prep-server";
 import { buildVisionMessage, totalPhotoBytes } from "@/lib/ai/vision-utils";
@@ -55,6 +57,10 @@ function isOpenAIConfigured(): boolean {
   return Boolean(process.env.OPENAI_API_KEY?.trim());
 }
 
+function getGoogle() {
+  return createGoogleGenerativeAI({ apiKey: getGeminiApiKey() });
+}
+
 function getVisionModels(): string[] {
   const primary =
     process.env.GEMINI_VISION_MODEL?.trim() ||
@@ -63,32 +69,20 @@ function getVisionModels(): string[] {
   return [
     primary,
     "gemini-2.5-flash",
-    "gemini-2.0-flash",
     "gemini-2.5-pro",
+    "gemini-2.0-flash",
   ].filter((m, i, arr) => arr.indexOf(m) === i);
 }
 
-function getModel(modelName: string): LanguageModel {
-  if (isGeminiConfigured()) {
-    return createGoogleGenerativeAI({ apiKey: getGeminiApiKey() })(modelName);
-  }
-  if (isOpenAIConfigured()) {
-    return openai("gpt-4o");
-  }
-  throw new Error("No AI provider configured");
-}
-
 function providerOptions() {
-  return isGeminiConfigured()
-    ? {
-        providerOptions: {
-          google: {
-            structuredOutputs: false,
-            temperature: 0.15,
-          },
-        },
-      }
-    : {};
+  return {
+    providerOptions: {
+      google: {
+        structuredOutputs: false,
+        temperature: 0.1,
+      },
+    },
+  };
 }
 
 function normalizeCondition(raw: string): ProductAnalysis["condition"] {
@@ -114,7 +108,22 @@ function extractJson(text: string): unknown {
   throw new Error("No JSON in model response");
 }
 
-function parseAnalysis(data: unknown): ProductAnalysis {
+function parseWebSources(
+  sources: Array<{ sourceType: string; title?: string; url?: string }>
+): ProductAnalysis["webSources"] {
+  return sources
+    .filter((s) => s.sourceType === "url" && s.url)
+    .slice(0, 6)
+    .map((s) => ({
+      title: s.title?.trim() || "Web result",
+      url: s.url!,
+    }));
+}
+
+function parseAnalysis(
+  data: unknown,
+  extras?: { webSources?: ProductAnalysis["webSources"]; usedWebSearch?: boolean }
+): ProductAnalysis {
   const obj = (typeof data === "object" && data !== null ? data : {}) as Record<
     string,
     unknown
@@ -153,6 +162,13 @@ function parseAnalysis(data: unknown): ProductAnalysis {
       .filter((p) => p && !["Unknown", "Not visible"].includes(p))
       .join(" ");
 
+  let identificationNotes = String(obj.identificationNotes ?? obj.notes ?? "").trim();
+  if (extras?.usedWebSearch && identificationNotes) {
+    identificationNotes = `${identificationNotes} (verified with Google Search)`;
+  } else if (extras?.usedWebSearch) {
+    identificationNotes = "Identified using Google Search web lookup (Lens-style).";
+  }
+
   return {
     product,
     brand,
@@ -168,12 +184,14 @@ function parseAnalysis(data: unknown): ProductAnalysis {
     itemSpecifics,
     searchQuery,
     visibleText,
-    identificationNotes: String(obj.identificationNotes ?? obj.notes ?? "").trim() || undefined,
+    identificationNotes: identificationNotes || undefined,
     conditionNotes: String(obj.conditionNotes ?? "").trim() || undefined,
     defects: defects?.length ? defects : undefined,
     ebayTitleSuggestion:
       String(obj.ebayTitleSuggestion ?? obj.ebay_title_suggestion ?? "").trim() || undefined,
     compsKeywords: compsKeywords?.length ? compsKeywords : undefined,
+    webSources: extras?.webSources,
+    usedWebSearch: extras?.usedWebSearch,
   };
 }
 
@@ -197,12 +215,76 @@ export function isPoorAnalysis(analysis: ProductAnalysis): boolean {
   return false;
 }
 
+/** Google Lens-style: vision + Google Search grounding (same API key) */
+async function analyzeWithGoogleSearch(
+  modelName: string,
+  photos: string[],
+  userPrompt: string
+): Promise<ProductAnalysis> {
+  const google = getGoogle();
+  const model = google(modelName);
+
+  const { text, sources } = await generateText({
+    model,
+    tools: {
+      google_search: google.tools.googleSearch({
+        searchTypes: {
+          webSearch: {},
+          imageSearch: {},
+        },
+      }),
+    },
+    system: ANALYSIS_SYSTEM,
+    messages: [
+      {
+        role: "user",
+        content: buildVisionMessage(userPrompt, photos),
+      },
+    ],
+    maxOutputTokens: 4500,
+    ...providerOptions(),
+  });
+
+  const webSources = parseWebSources(sources);
+
+  try {
+    return parseAnalysis(extractJson(text), {
+      webSources,
+      usedWebSearch: true,
+    });
+  } catch {
+    const sourceSummary = webSources
+      ?.map((s) => `- ${s.title}: ${s.url}`)
+      .join("\n");
+
+    const googleFast = google("gemini-2.5-flash");
+    const { text: structured } = await generateText({
+      model: googleFast,
+      messages: [
+        {
+          role: "user",
+          content: STRUCTURE_FROM_RESEARCH(text, sourceSummary ?? ""),
+        },
+      ],
+      maxOutputTokens: 2000,
+      ...providerOptions(),
+    });
+
+    return parseAnalysis(extractJson(structured), {
+      webSources,
+      usedWebSearch: true,
+    });
+  }
+}
+
 async function analyzeWithObject(
   modelName: string,
   photos: string[],
   userPrompt: string
 ): Promise<ProductAnalysis> {
-  const model = getModel(modelName);
+  const google = getGoogle();
+  const model = google(modelName);
+
   const { object } = await generateObject({
     model,
     schema: analysisSchema,
@@ -219,12 +301,8 @@ async function analyzeWithObject(
   return parseAnalysis(object);
 }
 
-async function analyzeWithTextJson(
-  modelName: string,
-  photos: string[],
-  userPrompt: string
-): Promise<ProductAnalysis> {
-  const model = getModel(modelName);
+async function analyzeWithOpenAI(photos: string[]): Promise<ProductAnalysis> {
+  const model = openai("gpt-4o");
   const { text } = await generateText({
     model,
     system: ANALYSIS_SYSTEM,
@@ -232,13 +310,12 @@ async function analyzeWithTextJson(
       {
         role: "user",
         content: buildVisionMessage(
-          `${userPrompt}\n\nRespond with ONLY valid JSON matching the product analysis schema.`,
+          `${ANALYSIS_USER}\n\nRespond with ONLY valid JSON.`,
           photos
         ),
       },
     ],
     maxOutputTokens: 2500,
-    ...providerOptions(),
   });
   return parseAnalysis(extractJson(text));
 }
@@ -246,29 +323,34 @@ async function analyzeWithTextJson(
 async function runOneModel(modelName: string, photos: string[]): Promise<ProductAnalysis> {
   let analysis: ProductAnalysis;
 
-  try {
-    analysis = await analyzeWithObject(modelName, photos, ANALYSIS_USER);
-  } catch (err) {
-    console.warn(`[AI] generateObject failed (${modelName}):`, err);
-    analysis = await analyzeWithTextJson(modelName, photos, ANALYSIS_USER);
+  if (isGeminiConfigured()) {
+    try {
+      analysis = await analyzeWithGoogleSearch(modelName, photos, LENS_ANALYSIS_USER);
+      if (!isPoorAnalysis(analysis)) return analysis;
+    } catch (err) {
+      console.warn(`[AI] Google Search grounding failed (${modelName}):`, err);
+    }
+
+    try {
+      analysis = await analyzeWithObject(modelName, photos, ANALYSIS_USER);
+    } catch (err) {
+      console.warn(`[AI] Vision-only failed (${modelName}):`, err);
+      throw err;
+    }
+  } else if (isOpenAIConfigured()) {
+    analysis = await analyzeWithOpenAI(photos);
+  } else {
+    throw new Error("No AI provider configured");
   }
 
-  if (isPoorAnalysis(analysis)) {
-    console.info(`[AI] Weak result (${analysis.confidence}%) — retrying ${modelName}`);
+  if (isPoorAnalysis(analysis) && isGeminiConfigured()) {
     try {
-      const retry = await analyzeWithObject(modelName, photos, RETRY_USER);
+      const retry = await analyzeWithGoogleSearch(modelName, photos, RETRY_USER);
       if (!isPoorAnalysis(retry) || retry.confidence > analysis.confidence) {
         return retry;
       }
     } catch {
-      try {
-        const retry = await analyzeWithTextJson(modelName, photos, RETRY_USER);
-        if (!isPoorAnalysis(retry) || retry.confidence > analysis.confidence) {
-          return retry;
-        }
-      } catch {
-        /* keep first result */
-      }
+      /* keep prior */
     }
   }
 
@@ -279,9 +361,13 @@ export async function runProductAnalysis(imageUrls: string[]): Promise<ProductAn
   const raw = imageUrls.filter(Boolean).slice(0, MAX_PHOTOS);
   if (!raw.length) throw new Error("No photos provided");
 
+  if (!isGeminiConfigured() && !isOpenAIConfigured()) {
+    throw new Error("No AI provider configured");
+  }
+
   const photos = await preparePhotosForVision(raw);
   const bytes = totalPhotoBytes(photos);
-  console.info(`[AI] Analyzing ${photos.length} photo(s), ${Math.round(bytes / 1024)}KB total`);
+  console.info(`[AI] Lens-style analyze ${photos.length} photo(s), ${Math.round(bytes / 1024)}KB`);
 
   if (bytes < 5000) {
     throw new Error("Photos appear empty or corrupted — try re-uploading");
@@ -295,7 +381,9 @@ export async function runProductAnalysis(imageUrls: string[]): Promise<ProductAn
     try {
       const result = await runOneModel(modelName, photos);
       if (!isPoorAnalysis(result)) {
-        console.info(`[AI] Success via ${modelName} (${result.confidence}%): ${result.product}`);
+        console.info(
+          `[AI] ${result.usedWebSearch ? "Google Search + " : ""}vision via ${modelName}: ${result.product}`
+        );
         return result;
       }
       if (!bestResult || result.confidence > bestResult.confidence) {
@@ -307,13 +395,10 @@ export async function runProductAnalysis(imageUrls: string[]): Promise<ProductAn
     }
   }
 
-  if (bestResult) {
-    console.warn(`[AI] Returning best weak result: ${bestResult.product}`);
-    return bestResult;
-  }
+  if (bestResult) return bestResult;
 
   if (photos.length > 1) {
-    const subset = [photos[0], photos[1]].filter(Boolean);
+    const subset = photos.slice(0, 2);
     for (const modelName of models.slice(0, 2)) {
       try {
         return await runOneModel(modelName, subset);

@@ -1,40 +1,77 @@
-/** System role — applies to every product category */
-export const ANALYSIS_SYSTEM = `You are an expert eBay reseller and product authenticator. You identify ANY resale item from photos: clothing, footwear, electronics, video games, collectibles, home goods, tools, sporting equipment, toys, books, accessories, vintage items, and more.
+/** System role — all product categories */
+export const ANALYSIS_SYSTEM = `You are an expert eBay reseller with Google Lens-level product recognition.
 
-Accuracy matters. Vague answers cost sellers money.
+You identify ANY resale item from photos: clothing, footwear, electronics, video games, collectibles, home goods, tools, sporting equipment, toys, books, accessories, vintage, and more.
 
-Rules you MUST follow:
-- NEVER use generic names alone: "shoes", "shirt", "phone", "item", "product", "electronics"
-- NEVER say brand "Unknown" when a logo, wordmark, or tag text identifies the brand
-- ALWAYS read tags, labels, screens, serial plates, and packaging text
-- ALWAYS combine clues from ALL photos in the set
-- Be specific enough that someone could search eBay sold listings and find comps
-- Only report sizes, model numbers, and serials you can actually read — never invent them
-- Condition: New, Like New, Good, Fair, or Poor — note specific wear`;
+Rules:
+- NEVER use generic names alone: "shoes", "shirt", "phone", "item", "electronics"
+- NEVER say brand "Unknown" when a logo or tag text is visible
+- ALWAYS read tags, labels, screens, serial plates, barcodes, and packaging
+- Combine ALL photos — different angles show different details
+- Use web search results to confirm exact model names when available
+- Only report sizes/model numbers you can read — never invent them`;
 
-export const ANALYSIS_USER = `Identify this item for an eBay resale listing. Look at every attached photo carefully.
+/** Vision + Google Search — Lens-style identification */
+export const LENS_ANALYSIS_USER = `Identify this item for an eBay resale listing.
 
-Before answering, mentally note:
-1. What TYPE of thing is this? (exact sub-type, not a broad category)
-2. What BRAND logos or text do you see?
-3. What MODEL/style/line name or number appears on tags?
-4. What COLORS make up the item?
-5. What TEXT can you read from tags, labels, screens, or packaging?
-6. What is the CONDITION — scuffs, dirt, cracks, missing parts?
+STEP 1 — Study every photo: logos, brand marks, tags, model numbers, colors, materials, condition, barcodes.
 
-Good vs bad examples:
-- GOOD "Nike Alpha Huarache Elite Metal Baseball Cleats" | BAD "Athletic shoes"
-- GOOD "Apple iPhone 13 Pro 128GB" | BAD "Smartphone"
-- GOOD "Sony PS5 Disc Console CFI-1215A" | BAD "Gaming console"
-- GOOD "Levi's 501 Original Fit Jeans Men's 32x32" | BAD "Pants"
-- GOOD "KitchenAid Artisan 5-Qt Stand Mixer KSM150" | BAD "Mixer"
-- GOOD "Rawlings Heart of the Hide Baseball Glove 12.75 inch" | BAD "Glove"`;
+STEP 2 — USE GOOGLE SEARCH to find this exact product online. Search like:
+- brand + visible model text + product type
+- eBay sold listings for similar items
+- manufacturer product pages
 
-export const RETRY_USER = `Your previous identification was too vague or missed obvious branding. Look at the photos again.
+Match what you SEE in the photos to REAL products found on the web. This is how Google Lens works — visual match + web lookup.
 
-Focus on:
-- Logos (Nike swoosh, Apple logo, etc.)
-- Tag text and model numbers
-- Distinctive features that narrow the exact product
+STEP 3 — Output your final answer as a single JSON code block (no other text after the JSON):
 
-Be as specific as possible. Do not downgrade to generic terms.`;
+\`\`\`json
+{
+  "product": "Full specific product name from web + photos",
+  "brand": "Brand from logo/tag/web — never Unknown if identified",
+  "model": "Model/style/SKU from tag or web",
+  "color": "Full colorway",
+  "size": "if visible",
+  "gender": "Men's/Women's/Youth if known",
+  "material": "if known",
+  "productType": "exact sub-type",
+  "condition": "New|Like New|Good|Fair|Poor",
+  "category": "eBay category path",
+  "confidence": 92,
+  "itemSpecifics": {"Brand":"","Type":"","Color":""},
+  "identificationNotes": "What you saw + what web search confirmed",
+  "conditionNotes": "specific wear or none noted",
+  "searchQuery": "best eBay sold comps search string",
+  "visibleText": ["tag","text","from","photos"],
+  "defects": [],
+  "ebayTitleSuggestion": "keyword-rich title under 80 chars",
+  "compsKeywords": ["brand","type","model"]
+}
+\`\`\`
+
+Examples:
+- Photos show Nike swoosh + metal spikes → search finds "Nike Alpha Huarache Elite cleats" → use that exact name
+- Photos show iPhone back label → search finds exact storage/model
+- Photos show game case art → search finds exact game title + platform`;
+
+export const ANALYSIS_USER = `Identify this item for an eBay listing. Examine every photo.
+
+Name the EXACT product type, brand (from logos/tags), model, colors, condition, and all readable tag text.
+
+End with a JSON code block containing: product, brand, model, color, productType, condition, category, confidence, itemSpecifics, identificationNotes, conditionNotes, searchQuery, visibleText, ebayTitleSuggestion, compsKeywords.`;
+
+export const RETRY_USER = `Previous identification was too vague. Look at photos again and search the web for the exact product.
+
+Find the real model name from eBay/retailer pages. Output ONLY the JSON code block with specific fields — no generic terms.`;
+
+export const STRUCTURE_FROM_RESEARCH = (research: string, sources: string) =>
+  `Convert this product research into eBay listing JSON. Use web findings to set exact brand/model/product names.
+
+RESEARCH:
+${research}
+
+WEB SOURCES:
+${sources || "none"}
+
+Respond with ONLY valid JSON (no markdown):
+{"product":"","brand":"","model":"","color":"","productType":"","condition":"Good","category":"","confidence":90,"itemSpecifics":{},"identificationNotes":"","conditionNotes":"","searchQuery":"","visibleText":[],"ebayTitleSuggestion":"","compsKeywords":[]}`;

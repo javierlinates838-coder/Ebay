@@ -279,7 +279,8 @@ function NewListingContent() {
                 <div>
                   <h2 className="text-xl font-semibold">Upload Photos</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Add 1-10 photos. Best results: front view, brand tag/tongue, size label, and any wear.
+                    Add 1-10 photos. Uses Google Search + Vision (like Google Lens) to match your item to
+                    real products online. Include brand tags and model labels for best results.
                   </p>
                 </div>
                 <PhotoUpload
