@@ -10,11 +10,89 @@ const productAnalysisSchema = z.object({
   brand: z.string(),
   model: z.string(),
   color: z.string(),
-  condition: z.string(),
+  condition: z.enum(["New", "Like New", "Good", "Fair", "Poor"]),
   category: z.string(),
   confidence: z.number().min(0).max(100),
   itemSpecifics: z.record(z.string(), z.string()),
+  identificationNotes: z.string(),
+  conditionNotes: z.string(),
+  searchQuery: z.string(),
+  visibleText: z.array(z.string()),
 });
+
+const REFINEMENT_CONFIDENCE_THRESHOLD = 65;
+const MAX_ANALYSIS_PHOTOS = 8;
+
+const TEXT_EXTRACTION_PROMPT = `You are an expert OCR assistant for eBay resellers. Transcribe ALL readable text from every product photo.
+
+For each photo, list:
+- Photo number
+- Every word, number, and code you can read (brand names, model numbers, SKUs, sizes, care labels, serial numbers, barcodes, country of origin, material tags)
+- If text is partially obscured, write what you can see with [?] for unclear characters
+
+Format:
+Photo 1: [text found]
+Photo 2: [text found]
+
+If no readable text in a photo, write "Photo N: (no readable text — describe visual features instead: color, shape, logos without text)"
+
+Be exhaustive. Resellers depend on tag/label text for accurate identification.`;
+
+const ANALYSIS_PROMPT = `You are a senior eBay reseller with 15 years of experience identifying products from photos for listings.
+
+You will receive product photos plus any text extracted from labels/tags. Use BOTH the images and extracted text.
+
+## Your process (follow internally before answering)
+1. Scan EVERY photo — front, back, tags, soles, interiors, packaging, serial plates
+2. Cross-reference visible text with visual features (silhouette, hardware, materials)
+3. Identify the most specific eBay-accurate product name possible
+4. Grade condition using eBay standards based ONLY on visible evidence
+5. Assign confidence honestly — never inflate above what the photos support
+
+## Condition grading (eBay used-item standards)
+- New: Tags attached, unused, original packaging
+- Like New: No visible wear, may lack tags/box
+- Good: Light wear, fully functional, minor cosmetic flaws
+- Fair: Obvious wear, scratches, fading, but works/sellable
+- Poor: Heavy wear, damage, stains, or missing parts noted
+
+## Field rules
+- product: Full specific name (e.g. "Patagonia Better Sweater 1/4-Zip Fleece Jacket", NOT "jacket")
+- brand: Exact brand from label/logo, or "Unbranded"
+- model: Style name/number from tag (e.g. "25523", "Air Force 1 '07"), or "Not visible"
+- color: Primary color(s) as buyers would search
+- category: Full eBay category path (e.g. "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweaters")
+- itemSpecifics: All eBay-relevant specifics you can support (Size, Material, Style, Type, Department, etc.)
+- identificationNotes: 2-3 sentences citing WHAT you saw (e.g. "Patagonia logo on chest, tag reads Style 25523 Size M")
+- conditionNotes: Specific visible flaws or "No visible defects noted"
+- searchQuery: Best eBay sold-comp search string (brand + model + key descriptor, no condition words)
+- visibleText: Array of distinct text strings read from tags/labels (empty array if none)
+- confidence: 90+ only if brand AND model confirmed from label/text; 70-89 if brand clear; 50-69 if category clear but brand uncertain; below 50 if guessing
+
+## Critical rules
+- NEVER invent model numbers, sizes, or brands not visible in photos or extracted text
+- If uncertain between similar items, pick the most likely and lower confidence
+- Prefer specificity over generality when evidence supports it`;
+
+const REFINEMENT_PROMPT = `Your previous identification had low confidence. Re-examine the photos with extreme focus on:
+- Inside labels and care tags (zoom mentally on tag areas)
+- Embossed/stamped model numbers
+- Packaging text and barcodes
+- Distinctive design features that differentiate similar products
+- Size markings on shoes, clothing, electronics
+
+Update your identification using ONLY evidence you can point to. Increase confidence only if you find supporting text or unmistakable visual identifiers.`;
+
+function getVisionModelName(forAnalysis = false): string {
+  if (forAnalysis) {
+    return (
+      process.env.GEMINI_VISION_MODEL?.trim() ||
+      process.env.GEMINI_ANALYSIS_MODEL?.trim() ||
+      "gemini-2.5-pro"
+    );
+  }
+  return process.env.GEMINI_FAST_MODEL?.trim() || "gemini-2.5-flash";
+}
 
 const listingSchema = z.object({
   title: z.string().max(80),
@@ -36,27 +114,6 @@ export interface ProductAnalysisResult {
   source: AnalysisSource;
   warning?: string;
 }
-
-const ANALYSIS_PROMPT = `You are an expert eBay reseller assistant analyzing product photos for resale listings.
-
-Study every photo carefully. Look for:
-- Brand logos, tags, labels, and packaging text
-- Model numbers, SKUs, serial numbers, and size labels
-- Material, color, style, and distinguishing features
-- Visible wear, damage, stains, or missing parts
-
-Return your best identification for an eBay listing:
-- product: specific item name (e.g. "Nike Air Force 1 Low White Sneakers", not "shoes")
-- brand: brand name, or "Unbranded" if none visible
-- model: model/style number or name, or "Not visible" if unknown
-- color: primary color(s)
-- condition: one of New, Like New, Good, Fair, Poor — based on visible wear
-- category: best eBay category path
-- confidence: 0-100 based on how clearly the item is identifiable
-- itemSpecifics: useful eBay item specifics (Size, Material, Style, etc.)
-
-If you cannot identify the item clearly, still describe what you see literally and set confidence below 50.
-Do not invent brand or model details that are not supported by the photos.`;
 
 function getGeminiApiKey(): string | undefined {
   return (
@@ -83,32 +140,57 @@ export function getAIProviderName(): "gemini" | "openai" | null {
   return null;
 }
 
-function getVisionModel(): LanguageModel {
+function getVisionModel(forAnalysis = false): LanguageModel {
   if (isGeminiConfigured()) {
     const google = createGoogleGenerativeAI({ apiKey: getGeminiApiKey() });
-    return google("gemini-2.5-flash");
+    return google(getVisionModelName(forAnalysis));
   }
 
   if (isOpenAIConfigured()) {
-    return openai("gpt-4o");
+    return openai(forAnalysis ? "gpt-4o" : "gpt-4o-mini");
   }
 
   throw new Error("No AI provider configured");
 }
 
 function getTextModel(): LanguageModel {
-  return getVisionModel();
+  if (isGeminiConfigured()) {
+    const google = createGoogleGenerativeAI({ apiKey: getGeminiApiKey() });
+    return google(getVisionModelName(false));
+  }
+
+  if (isOpenAIConfigured()) {
+    return openai("gpt-4o-mini");
+  }
+
+  throw new Error("No AI provider configured");
 }
 
-function toImageParts(imageUrls: string[]) {
-  return imageUrls.slice(0, 5).map((url) => {
+function toLabeledImageContent(imageUrls: string[]) {
+  const parts: Array<{ type: "text"; text: string } | { type: "image"; image: string; mimeType?: string }> = [];
+
+  for (const [index, url] of imageUrls.entries()) {
     const match = url.match(/^data:(image\/[^;]+);base64,/);
-    return {
-      type: "image" as const,
+    const photoNum = index + 1;
+    const hint =
+      photoNum === 1
+        ? " (main / front view — start here)"
+        : photoNum === imageUrls.length
+          ? " (additional angle or detail)"
+          : "";
+
+    parts.push({
+      type: "text",
+      text: `\n--- Photo ${photoNum} of ${imageUrls.length}${hint} ---`,
+    });
+    parts.push({
+      type: "image",
       image: url,
       ...(match ? { mimeType: match[1] } : {}),
-    };
-  });
+    });
+  }
+
+  return parts;
 }
 
 function getAnalysisSource(): AnalysisSource {
@@ -117,12 +199,48 @@ function getAnalysisSource(): AnalysisSource {
   return "demo";
 }
 
-async function runVisionAnalysis(imageUrls: string[]): Promise<ProductAnalysis> {
-  const model = getVisionModel();
+function geminiOptions() {
+  return isGeminiConfigured()
+    ? { providerOptions: { google: { structuredOutputs: false } } }
+    : {};
+}
+
+async function extractVisibleText(imageUrls: string[]): Promise<string> {
+  const model = getVisionModel(true);
+  const { text } = await generateText({
+    model,
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: TEXT_EXTRACTION_PROMPT }, ...toLabeledImageContent(imageUrls)],
+      },
+    ],
+    ...geminiOptions(),
+  });
+  return text.trim();
+}
+
+async function identifyProduct(
+  imageUrls: string[],
+  extractedText: string,
+  refinementContext?: ProductAnalysis
+): Promise<ProductAnalysis> {
+  const model = getVisionModel(true);
+  const contextBlock = extractedText
+    ? `\n\n## Text extracted from photos (OCR)\n${extractedText}`
+    : "";
+
+  const refinementBlock = refinementContext
+    ? `\n\n## Previous attempt (low confidence — improve this)\n${JSON.stringify(refinementContext, null, 2)}\n\n${REFINEMENT_PROMPT}`
+    : "";
+
   const messages = [
     {
       role: "user" as const,
-      content: [{ type: "text" as const, text: ANALYSIS_PROMPT }, ...toImageParts(imageUrls)],
+      content: [
+        { type: "text" as const, text: ANALYSIS_PROMPT + contextBlock + refinementBlock },
+        ...toLabeledImageContent(imageUrls),
+      ],
     },
   ];
 
@@ -131,13 +249,11 @@ async function runVisionAnalysis(imageUrls: string[]): Promise<ProductAnalysis> 
       model,
       schema: productAnalysisSchema,
       messages,
-      ...(isGeminiConfigured()
-        ? { providerOptions: { google: { structuredOutputs: false } } }
-        : {}),
+      ...geminiOptions(),
     });
-    return object;
+    return normalizeAnalysis(object);
   } catch (structuredError) {
-    console.warn("[AI] Structured vision analysis failed, retrying with text JSON:", structuredError);
+    console.warn("[AI] Structured identification failed, retrying with text JSON:", structuredError);
 
     const { text } = await generateText({
       model,
@@ -146,18 +262,63 @@ async function runVisionAnalysis(imageUrls: string[]): Promise<ProductAnalysis> 
         {
           role: "user" as const,
           content:
-            "Respond with ONLY valid JSON matching this shape: {\"product\":\"\",\"brand\":\"\",\"model\":\"\",\"color\":\"\",\"condition\":\"\",\"category\":\"\",\"confidence\":0,\"itemSpecifics\":{}}",
+            'Respond with ONLY valid JSON matching: {"product":"","brand":"","model":"","color":"","condition":"Good","category":"","confidence":0,"itemSpecifics":{},"identificationNotes":"","conditionNotes":"","searchQuery":"","visibleText":[]}',
         },
       ],
+      ...geminiOptions(),
     });
 
     const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw structuredError;
-    }
+    if (!jsonMatch) throw structuredError;
 
-    return productAnalysisSchema.parse(JSON.parse(jsonMatch[0]));
+    return normalizeAnalysis(productAnalysisSchema.parse(JSON.parse(jsonMatch[0])));
   }
+}
+
+function normalizeAnalysis(raw: z.infer<typeof productAnalysisSchema>): ProductAnalysis {
+  const searchQuery =
+    raw.searchQuery?.trim() ||
+    [raw.brand, raw.model, raw.product.split(" ").slice(0, 3).join(" ")]
+      .filter((p) => p && p !== "Unknown" && p !== "Not visible" && p !== "Unbranded")
+      .join(" ")
+      .trim();
+
+  return {
+    ...raw,
+    searchQuery: searchQuery || raw.product,
+    visibleText: raw.visibleText?.filter(Boolean) ?? [],
+    identificationNotes: raw.identificationNotes?.trim() || undefined,
+    conditionNotes: raw.conditionNotes?.trim() || undefined,
+  };
+}
+
+async function runVisionAnalysis(imageUrls: string[]): Promise<ProductAnalysis> {
+  const photos = imageUrls.slice(0, MAX_ANALYSIS_PHOTOS);
+
+  // Stage 1: OCR / text extraction from labels and tags
+  let extractedText = "";
+  try {
+    extractedText = await extractVisibleText(photos);
+  } catch (err) {
+    console.warn("[AI] Text extraction failed, continuing with images only:", err);
+  }
+
+  // Stage 2: Full product identification
+  let analysis = await identifyProduct(photos, extractedText);
+
+  // Stage 3: Refinement pass if confidence is low
+  if (analysis.confidence < REFINEMENT_CONFIDENCE_THRESHOLD) {
+    try {
+      const refined = await identifyProduct(photos, extractedText, analysis);
+      if (refined.confidence >= analysis.confidence) {
+        analysis = refined;
+      }
+    } catch (err) {
+      console.warn("[AI] Refinement pass failed, using first result:", err);
+    }
+  }
+
+  return analysis;
 }
 
 export async function analyzeProductPhotos(
@@ -178,9 +339,11 @@ export async function analyzeProductPhotos(
       analysis,
       source: getAnalysisSource(),
       warning:
-        analysis.confidence < 50
-          ? "Low confidence — review and edit the details below before continuing."
-          : undefined,
+        analysis.confidence < 65
+          ? "Low confidence — add a photo of the label/tag and edit fields below."
+          : analysis.confidence < 80
+            ? "Moderate confidence — verify brand and model before continuing."
+            : undefined,
     };
   } catch (error) {
     console.error("[AI] Photo analysis failed:", error);
@@ -320,6 +483,10 @@ function generateMockAnalysis(): ProductAnalysis {
     itemSpecifics: {
       Condition: "Good",
     },
+    identificationNotes: "Demo mode — add GEMINI_API_KEY for real identification.",
+    conditionNotes: "Unable to assess in demo mode.",
+    searchQuery: "",
+    visibleText: [],
   };
 }
 

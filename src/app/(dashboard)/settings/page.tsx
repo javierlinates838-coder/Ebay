@@ -84,6 +84,11 @@ function SettingsContent() {
 
   const envStatus = [
     { name: "Google Gemini", key: "GEMINI_API_KEY", configured: config?.gemini ?? false },
+    {
+      name: "Gemini Vision Model (optional)",
+      key: "GEMINI_VISION_MODEL (default: gemini-2.5-pro)",
+      configured: config?.gemini ?? false,
+    },
     { name: "OpenAI (optional)", key: "OPENAI_API_KEY", configured: config?.openai ?? false },
     {
       name: "Supabase URL + Anon Key",

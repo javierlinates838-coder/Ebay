@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dataUrlToBlob } from "@/lib/data-url";
+import { prepareImageForAnalysis } from "@/lib/image-compress";
 import type {
   GeneratedListing,
   Listing,
@@ -92,8 +93,12 @@ export function useListingWorkflow() {
     setState((s) => ({ ...s, loading: true, error: null }));
 
     try {
+      const prepared = await Promise.all(
+        photos.slice(0, 8).map((photo) => prepareImageForAnalysis(photo))
+      );
+
       const formData = new FormData();
-      for (const [index, photo] of photos.slice(0, 5).entries()) {
+      for (const [index, photo] of prepared.entries()) {
         formData.append("images", dataUrlToBlob(photo), `photo-${index + 1}.jpg`);
       }
 

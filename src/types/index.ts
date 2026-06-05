@@ -9,6 +9,14 @@ export interface ProductAnalysis {
   category: string;
   confidence: number;
   itemSpecifics: Record<string, string>;
+  /** What the AI observed in the photos (evidence-backed) */
+  identificationNotes?: string;
+  /** Specific wear, defects, or missing parts */
+  conditionNotes?: string;
+  /** Suggested eBay search query for comps */
+  searchQuery?: string;
+  /** Text read from labels, tags, or packaging */
+  visibleText?: string[];
 }
 
 export interface MarketResearch {

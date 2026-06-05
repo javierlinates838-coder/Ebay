@@ -3,7 +3,7 @@ import { analyzeProductPhotos } from "@/lib/ai/client";
 import { blobToDataUrl } from "@/lib/data-url";
 import { handleApiError, parseJsonBody, ApiError } from "@/lib/api-utils";
 
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 async function readImageUrls(request: NextRequest): Promise<string[]> {
   const contentType = request.headers.get("content-type") || "";

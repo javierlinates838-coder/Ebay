@@ -83,12 +83,17 @@ function NewListingContent() {
     }
     try {
       const result = await workflow.analyzePhotos(state.photos);
+      if (result.analysis.searchQuery) {
+        setMarketQuery(result.analysis.searchQuery);
+      }
       if (result.warning) {
         toast.warning(result.warning);
       } else if (result.source === "demo") {
         toast.info("Demo mode — add GEMINI_API_KEY in Vercel for real AI identification.");
+      } else if (result.analysis.confidence >= 80) {
+        toast.success("Product identified with high confidence!");
       } else {
-        toast.success("Product identified!");
+        toast.success("Product identified — verify details below.");
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Analysis failed");
@@ -99,6 +104,7 @@ function NewListingContent() {
     if (!state.analysis) return;
     const query =
       marketQuery.trim() ||
+      state.analysis.searchQuery?.trim() ||
       `${state.analysis.brand} ${state.analysis.model} ${state.analysis.product}`.trim();
 
     if (!query) {
@@ -244,7 +250,7 @@ function NewListingContent() {
                 <div>
                   <h2 className="text-xl font-semibold">Upload Photos</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Add 1-10 photos. AI will identify your product automatically.
+                    Add 1-10 photos. Include the brand tag, care label, and model number for best accuracy.
                   </p>
                 </div>
                 <PhotoUpload
@@ -284,7 +290,10 @@ function NewListingContent() {
                   <Label htmlFor="market-query">Market search term</Label>
                   <Input
                     id="market-query"
-                    placeholder={`e.g. ${state.analysis.brand} ${state.analysis.model}`}
+                    placeholder={
+                      state.analysis.searchQuery ||
+                      `e.g. ${state.analysis.brand} ${state.analysis.model}`
+                    }
                     value={marketQuery}
                     onChange={(e) => setMarketQuery(e.target.value)}
                     onKeyDown={(e) => {

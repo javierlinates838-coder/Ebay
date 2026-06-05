@@ -1,5 +1,7 @@
 const MAX_DIMENSION = 1024;
+const ANALYSIS_MAX_DIMENSION = 1600;
 const JPEG_QUALITY = 0.72;
+const ANALYSIS_JPEG_QUALITY = 0.88;
 const ALWAYS_COMPRESS_ABOVE_BYTES = 150_000;
 
 export async function compressImageFile(file: File): Promise<string> {
@@ -30,10 +32,27 @@ function readFileAsDataUrl(file: File): Promise<string> {
 }
 
 function compressDataUrl(dataUrl: string): Promise<string> {
+  return compressDataUrlWithOptions(dataUrl, MAX_DIMENSION, JPEG_QUALITY);
+}
+
+/** Higher resolution for AI vision — preserves label/tag readability */
+export async function prepareImageForAnalysis(dataUrl: string): Promise<string> {
+  try {
+    return await compressDataUrlWithOptions(dataUrl, ANALYSIS_MAX_DIMENSION, ANALYSIS_JPEG_QUALITY);
+  } catch {
+    return dataUrl;
+  }
+}
+
+function compressDataUrlWithOptions(
+  dataUrl: string,
+  maxDimension: number,
+  quality: number
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
-      const scale = Math.min(1, MAX_DIMENSION / Math.max(img.width, img.height));
+      const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
       const width = Math.max(1, Math.round(img.width * scale));
       const height = Math.max(1, Math.round(img.height * scale));
 
@@ -48,7 +67,7 @@ function compressDataUrl(dataUrl: string): Promise<string> {
       }
 
       ctx.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL("image/jpeg", JPEG_QUALITY));
+      resolve(canvas.toDataURL("image/jpeg", quality));
     };
     img.onerror = () => reject(new Error("Failed to load image"));
     img.src = dataUrl;
