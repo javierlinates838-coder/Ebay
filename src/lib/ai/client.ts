@@ -1,105 +1,10 @@
-import { generateObject, generateText, type LanguageModel } from "ai";
+import { generateObject, type LanguageModel } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import type { GeneratedListing, MarketResearch, PricingRecommendation, ProductAnalysis } from "@/types";
 import { analyzePricing } from "@/lib/ebay/client";
-
-const productAnalysisSchema = z.object({
-  product: z.string(),
-  brand: z.string(),
-  model: z.string(),
-  color: z.string(),
-  condition: z.string(),
-  category: z.string(),
-  confidence: z.number().min(0).max(100),
-  itemSpecifics: z.record(z.string(), z.string()).optional().default({}),
-  identificationNotes: z.string().optional().default(""),
-  conditionNotes: z.string().optional().default(""),
-  searchQuery: z.string().optional().default(""),
-  visibleText: z.array(z.string()).optional().default([]),
-});
-
-const REFINEMENT_CONFIDENCE_THRESHOLD = 65;
-const MAX_ANALYSIS_PHOTOS = 6;
-
-const CONDITIONS = ["New", "Like New", "Good", "Fair", "Poor"] as const;
-type Condition = (typeof CONDITIONS)[number];
-
-function normalizeCondition(raw: string): Condition {
-  const lower = raw.toLowerCase().trim();
-  if (lower.includes("like new") || lower.includes("like-new")) return "Like New";
-  if (lower === "new" || lower.startsWith("new ") || lower.includes("brand new")) return "New";
-  if (lower.includes("fair") || lower.includes("acceptable")) return "Fair";
-  if (lower.includes("poor") || lower.includes("damaged") || lower.includes("for parts")) return "Poor";
-  if (lower.includes("good") || lower.includes("used") || lower.includes("pre-owned")) return "Good";
-  return "Good";
-}
-
-const TEXT_EXTRACTION_PROMPT = `Transcribe ALL readable text from these product photos — brand names, NIKE tags, model codes, sizes, care labels, serial numbers. List by photo number. If no text, note visible logos/colors.`;
-
-const ANALYSIS_PROMPT = `You are a senior eBay reseller with 15 years of experience identifying products from photos for listings.
-
-You will receive product photos plus any text extracted from labels/tags. Use BOTH the images and extracted text.
-
-## Your process (follow internally before answering)
-1. Scan EVERY photo — front, back, tags, soles, interiors, packaging, serial plates
-2. Cross-reference visible text with visual features (silhouette, hardware, materials)
-3. Identify the most specific eBay-accurate product name possible
-4. Grade condition using eBay standards based ONLY on visible evidence
-5. Assign confidence honestly — never inflate above what the photos support
-
-## Condition grading (eBay used-item standards)
-- New: Tags attached, unused, original packaging
-- Like New: No visible wear, may lack tags/box
-- Good: Light wear, fully functional, minor cosmetic flaws
-- Fair: Obvious wear, scratches, fading, but works/sellable
-- Poor: Heavy wear, damage, stains, or missing parts noted
-
-## Field rules
-- product: Full specific name (e.g. "Patagonia Better Sweater 1/4-Zip Fleece Jacket", NOT "jacket")
-- brand: Exact brand from label/logo, or "Unbranded"
-- model: Style name/number from tag (e.g. "25523", "Air Force 1 '07"), or "Not visible"
-- color: Primary color(s) as buyers would search
-- category: Full eBay category path (e.g. "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweaters")
-- itemSpecifics: All eBay-relevant specifics you can support (Size, Material, Style, Type, Department, etc.)
-- identificationNotes: 2-3 sentences citing WHAT you saw (e.g. "Patagonia logo on chest, tag reads Style 25523 Size M")
-- conditionNotes: Specific visible flaws or "No visible defects noted"
-- searchQuery: Best eBay sold-comp search string (brand + model + key descriptor, no condition words)
-- visibleText: Array of distinct text strings read from tags/labels (empty array if none)
-- confidence: 90+ only if brand AND model confirmed from label/text; 70-89 if brand clear; 50-69 if category clear but brand uncertain; below 50 if guessing
-
-## Critical rules
-- NEVER invent model numbers, sizes, or brands not visible in photos or extracted text
-- If uncertain between similar items, pick the most likely and lower confidence
-- Prefer specificity over generality when evidence supports it`;
-
-const REFINEMENT_PROMPT = `Your previous identification had low confidence. Re-examine the photos with extreme focus on:
-- Inside labels and care tags (zoom mentally on tag areas)
-- Embossed/stamped model numbers
-- Packaging text and barcodes
-- Distinctive design features that differentiate similar products
-- Size markings on shoes, clothing, electronics
-
-Update your identification using ONLY evidence you can point to. Increase confidence only if you find supporting text or unmistakable visual identifiers.`;
-
-function getVisionModelName(forAnalysis = false): string {
-  if (forAnalysis) {
-    return (
-      process.env.GEMINI_VISION_MODEL?.trim() ||
-      process.env.GEMINI_ANALYSIS_MODEL?.trim() ||
-      "gemini-2.5-flash"
-    );
-  }
-  return process.env.GEMINI_FAST_MODEL?.trim() || "gemini-2.5-flash";
-}
-
-/** Fallback models if primary fails (404, quota, etc.) */
-const ANALYSIS_MODEL_FALLBACKS = [
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-1.5-flash",
-];
+import { runProductAnalysis } from "@/lib/ai/analyze-product";
 
 const listingSchema = z.object({
   title: z.string().max(80),
@@ -147,23 +52,16 @@ export function getAIProviderName(): "gemini" | "openai" | null {
   return null;
 }
 
-function getVisionModel(forAnalysis = false, modelName?: string): LanguageModel {
-  if (isGeminiConfigured()) {
-    const google = createGoogleGenerativeAI({ apiKey: getGeminiApiKey() });
-    return google(modelName ?? getVisionModelName(forAnalysis));
-  }
-
-  if (isOpenAIConfigured()) {
-    return openai(forAnalysis ? "gpt-4o" : "gpt-4o-mini");
-  }
-
-  throw new Error("No AI provider configured");
+function getAnalysisSource(): AnalysisSource {
+  if (isGeminiConfigured()) return "gemini";
+  if (isOpenAIConfigured()) return "openai";
+  return "demo";
 }
 
 function getTextModel(): LanguageModel {
   if (isGeminiConfigured()) {
     const google = createGoogleGenerativeAI({ apiKey: getGeminiApiKey() });
-    return google(getVisionModelName(false));
+    return google(process.env.GEMINI_FAST_MODEL?.trim() || "gemini-2.5-flash");
   }
 
   if (isOpenAIConfigured()) {
@@ -171,237 +69,6 @@ function getTextModel(): LanguageModel {
   }
 
   throw new Error("No AI provider configured");
-}
-
-function toLabeledImageContent(imageUrls: string[]) {
-  const parts: Array<{ type: "text"; text: string } | { type: "image"; image: string; mimeType?: string }> = [];
-
-  for (const [index, url] of imageUrls.entries()) {
-    const match = url.match(/^data:(image\/[^;]+);base64,/);
-    const photoNum = index + 1;
-    const hint =
-      photoNum === 1
-        ? " (main / front view — start here)"
-        : photoNum === imageUrls.length
-          ? " (additional angle or detail)"
-          : "";
-
-    parts.push({
-      type: "text",
-      text: `\n--- Photo ${photoNum} of ${imageUrls.length}${hint} ---`,
-    });
-    parts.push({
-      type: "image",
-      image: url,
-      ...(match ? { mimeType: match[1] } : {}),
-    });
-  }
-
-  return parts;
-}
-
-function getAnalysisSource(): AnalysisSource {
-  if (isGeminiConfigured()) return "gemini";
-  if (isOpenAIConfigured()) return "openai";
-  return "demo";
-}
-
-function geminiOptions() {
-  return isGeminiConfigured()
-    ? { providerOptions: { google: { structuredOutputs: false } } }
-    : {};
-}
-
-function getModelCandidates(): string[] {
-  const primary = getVisionModelName(true);
-  const fallbacks = ANALYSIS_MODEL_FALLBACKS.filter((m) => m !== primary);
-  return [primary, ...fallbacks];
-}
-
-function parseLooseAnalysis(data: unknown): z.infer<typeof productAnalysisSchema> {
-  if (typeof data === "object" && data !== null) {
-    const obj = data as Record<string, unknown>;
-    return productAnalysisSchema.parse({
-      product: obj.product ?? obj.name ?? obj.title ?? "Unknown product",
-      brand: obj.brand ?? obj.manufacturer ?? "Unknown",
-      model: obj.model ?? obj.style ?? obj.styleNumber ?? "Not visible",
-      color: obj.color ?? obj.colour ?? "Unknown",
-      condition: obj.condition ?? "Good",
-      category: obj.category ?? "General",
-      confidence: typeof obj.confidence === "number" ? obj.confidence : 50,
-      itemSpecifics: obj.itemSpecifics ?? obj.item_specifics ?? {},
-      identificationNotes: obj.identificationNotes ?? obj.notes ?? "",
-      conditionNotes: obj.conditionNotes ?? "",
-      searchQuery: obj.searchQuery ?? obj.search_query ?? "",
-      visibleText: obj.visibleText ?? obj.visible_text ?? [],
-    });
-  }
-  throw new Error("Invalid analysis response");
-}
-
-function normalizeAnalysis(raw: z.infer<typeof productAnalysisSchema>): ProductAnalysis {
-  const condition = normalizeCondition(raw.condition);
-  const searchQuery =
-    raw.searchQuery?.trim() ||
-    [raw.brand, raw.model, raw.product.split(" ").slice(0, 4).join(" ")]
-      .filter((p) => p && p !== "Unknown" && p !== "Not visible" && p !== "Unbranded")
-      .join(" ")
-      .trim();
-
-  return {
-    product: raw.product.trim() || "Unknown product",
-    brand: raw.brand.trim() || "Unknown",
-    model: raw.model.trim() || "Not visible",
-    color: raw.color.trim() || "Unknown",
-    condition,
-    category: raw.category.trim() || "General",
-    confidence: Math.min(100, Math.max(0, Math.round(raw.confidence))),
-    itemSpecifics: raw.itemSpecifics ?? {},
-    searchQuery: searchQuery || raw.product,
-    visibleText: (raw.visibleText ?? []).filter(Boolean),
-    identificationNotes: raw.identificationNotes?.trim() || undefined,
-    conditionNotes: raw.conditionNotes?.trim() || undefined,
-  };
-}
-
-async function identifyWithModel(
-  imageUrls: string[],
-  modelName: string,
-  extractedText?: string,
-  refinementContext?: ProductAnalysis
-): Promise<ProductAnalysis> {
-  const model = getVisionModel(true, modelName);
-  const contextBlock = extractedText
-    ? `\n\nText visible in photos:\n${extractedText}`
-    : "";
-
-  const refinementBlock = refinementContext
-    ? `\n\nPrevious attempt (improve this):\n${JSON.stringify(refinementContext)}\n${REFINEMENT_PROMPT}`
-    : "";
-
-  const messages = [
-    {
-      role: "user" as const,
-      content: [
-        { type: "text" as const, text: ANALYSIS_PROMPT + contextBlock + refinementBlock },
-        ...toLabeledImageContent(imageUrls),
-      ],
-    },
-  ];
-
-  try {
-    const { object } = await generateObject({
-      model,
-      schema: productAnalysisSchema,
-      messages,
-      ...geminiOptions(),
-    });
-    return normalizeAnalysis(object);
-  } catch (structuredError) {
-    console.warn(`[AI] Structured output failed (${modelName}):`, structuredError);
-
-    const { text } = await generateText({
-      model,
-      messages: [
-        ...messages,
-        {
-          role: "user" as const,
-          content:
-            'Return ONLY JSON: {"product":"","brand":"","model":"","color":"","condition":"Good","category":"","confidence":80,"itemSpecifics":{},"identificationNotes":"","conditionNotes":"","searchQuery":"","visibleText":[]}',
-        },
-      ],
-      ...geminiOptions(),
-    });
-
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw structuredError;
-
-    return normalizeAnalysis(parseLooseAnalysis(JSON.parse(jsonMatch[0])));
-  }
-}
-
-async function identifyProduct(
-  imageUrls: string[],
-  extractedText: string,
-  refinementContext?: ProductAnalysis
-): Promise<ProductAnalysis> {
-  const models = getModelCandidates();
-  let lastError: unknown;
-
-  for (const modelName of models) {
-    try {
-      return await identifyWithModel(imageUrls, modelName, extractedText, refinementContext);
-    } catch (err) {
-      lastError = err;
-      console.warn(`[AI] Model ${modelName} failed:`, err);
-    }
-  }
-
-  throw lastError ?? new Error("All vision models failed");
-}
-
-async function extractVisibleText(imageUrls: string[]): Promise<string> {
-  const model = getVisionModel(true, "gemini-2.5-flash");
-  const { text } = await generateText({
-    model,
-    messages: [
-      {
-        role: "user",
-        content: [{ type: "text", text: TEXT_EXTRACTION_PROMPT }, ...toLabeledImageContent(imageUrls.slice(0, 3))],
-      },
-    ],
-    ...geminiOptions(),
-  });
-  return text.trim();
-}
-
-async function runVisionAnalysis(imageUrls: string[]): Promise<ProductAnalysis> {
-  const photos = imageUrls.slice(0, MAX_ANALYSIS_PHOTOS);
-
-  // Run identification immediately — don't block on OCR
-  let analysis: ProductAnalysis;
-  try {
-    analysis = await identifyProduct(photos, "");
-  } catch (firstPassError) {
-    console.warn("[AI] First pass failed, retrying with fewer photos:", firstPassError);
-    analysis = await identifyProduct(photos.slice(0, 3), "");
-  }
-
-  // Enrich with OCR if brand still unknown and we have time
-  if (analysis.confidence < 80 || analysis.brand === "Unknown") {
-    try {
-      const extractedText = await extractVisibleText(photos);
-      if (extractedText) {
-        const enriched = await identifyWithModel(
-          photos,
-          getModelCandidates()[0],
-          extractedText,
-          analysis.confidence < REFINEMENT_CONFIDENCE_THRESHOLD ? analysis : undefined
-        );
-        if (enriched.confidence >= analysis.confidence) {
-          analysis = enriched;
-        }
-      }
-    } catch (err) {
-      console.warn("[AI] OCR enrichment skipped:", err);
-    }
-  } else if (analysis.confidence < REFINEMENT_CONFIDENCE_THRESHOLD) {
-    try {
-      const refined = await identifyWithModel(
-        photos,
-        getModelCandidates()[0],
-        "",
-        analysis
-      );
-      if (refined.confidence >= analysis.confidence) {
-        analysis = refined;
-      }
-    } catch (err) {
-      console.warn("[AI] Refinement skipped:", err);
-    }
-  }
-
-  return analysis;
 }
 
 export async function analyzeProductPhotos(
@@ -417,7 +84,7 @@ export async function analyzeProductPhotos(
   }
 
   try {
-    const analysis = await runVisionAnalysis(imageUrls);
+    const analysis = await runProductAnalysis(imageUrls);
     return {
       analysis,
       source: getAnalysisSource(),

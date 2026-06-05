@@ -250,7 +250,7 @@ function NewListingContent() {
                 <div>
                   <h2 className="text-xl font-semibold">Upload Photos</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Add 1-10 photos. Include the brand tag, care label, and model number for best accuracy.
+                    Add 1-10 photos. Best results: front view, brand tag/tongue, size label, and any wear.
                   </p>
                 </div>
                 <PhotoUpload

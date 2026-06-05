@@ -94,7 +94,7 @@ export function useListingWorkflow() {
 
     try {
       const prepared = await Promise.all(
-        photos.slice(0, 6).map((photo) => prepareImageForAnalysis(photo))
+        photos.slice(0, 4).map((photo) => prepareImageForAnalysis(photo))
       );
 
       const formData = new FormData();
