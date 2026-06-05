@@ -4,7 +4,7 @@ import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import type { GeneratedListing, MarketResearch, PricingRecommendation, ProductAnalysis } from "@/types";
 import { analyzePricing } from "@/lib/ebay/client";
-import { runProductAnalysis } from "@/lib/ai/analyze-product";
+import { isPoorAnalysis, runProductAnalysis } from "@/lib/ai/analyze-product";
 
 const listingSchema = z.object({
   title: z.string().max(80),
@@ -25,6 +25,7 @@ export interface ProductAnalysisResult {
   analysis: ProductAnalysis;
   source: AnalysisSource;
   warning?: string;
+  error?: string;
 }
 
 function getGeminiApiKey(): string | undefined {
@@ -85,40 +86,26 @@ export async function analyzeProductPhotos(
 
   try {
     const analysis = await runProductAnalysis(imageUrls);
+
+    const warning = isPoorAnalysis(analysis)
+      ? "AI had low confidence — double-check brand, model, and product type below."
+      : analysis.confidence < 80
+        ? "Moderate confidence — verify brand and model."
+        : undefined;
+
     return {
       analysis,
       source: getAnalysisSource(),
-      warning:
-        analysis.confidence < 65
-          ? "Verify the details below — edit anything that looks wrong."
-          : analysis.confidence < 80
-            ? "Moderate confidence — double-check brand and model."
-            : undefined,
+      warning,
     };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    console.error("[AI] Photo analysis failed after all retries:", detail);
-
-    // Last resort: return editable placeholder instead of blocking the user
-    return {
-      analysis: {
-        product: "Could not auto-identify — edit this",
-        brand: "Unknown",
-        model: "Not visible",
-        color: "Unknown",
-        condition: "Good",
-        category: "General",
-        confidence: 20,
-        itemSpecifics: { Condition: "Good" },
-        identificationNotes: `AI analysis hit an error (${detail.slice(0, 120)}). The photos uploaded fine — please fill in the product details manually.`,
-        conditionNotes: "Review photos and set condition manually.",
-        searchQuery: "",
-        visibleText: [],
-      },
-      source: getAnalysisSource(),
-      warning:
-        "AI had a technical issue but your photos are saved. Fill in the product details below and continue.",
-    };
+    console.error("[AI] Photo analysis failed:", detail);
+    throw new Error(
+      detail.includes("API key")
+        ? detail
+        : `Photo analysis failed: ${detail}. Check GEMINI_API_KEY in Vercel Settings → Environment Variables, redeploy, then try again.`
+    );
   }
 }
 

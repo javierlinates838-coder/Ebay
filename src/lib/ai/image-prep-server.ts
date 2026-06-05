@@ -1,10 +1,10 @@
 import sharp from "sharp";
 
 const MAX_EDGE = 2048;
-const JPEG_QUALITY = 92;
-const MAX_BYTES = 1_200_000;
+const JPEG_QUALITY = 93;
+const MAX_BYTES = 1_400_000;
 
-/** Server-side prep — preserve tag detail, stay under Vercel payload limits */
+/** Preserve tag/logo detail for vision models */
 export async function preparePhotosForVision(dataUrls: string[]): Promise<string[]> {
   const prepared: string[] = [];
 
@@ -24,7 +24,6 @@ async function optimizeOne(dataUrl: string): Promise<string> {
   const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, "");
   const input = Buffer.from(base64, "base64");
 
-  // Skip re-encoding if already small and reasonably sized
   if (input.length <= MAX_BYTES) {
     const meta = await sharp(input).metadata();
     const maxDim = Math.max(meta.width ?? 0, meta.height ?? 0);
@@ -41,11 +40,12 @@ async function optimizeOne(dataUrl: string): Promise<string> {
       fit: "inside",
       withoutEnlargement: true,
     })
+    .sharpen({ sigma: 0.8 })
     .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
     .toBuffer();
 
   if (output.length > MAX_BYTES) {
-    output = await sharp(output).jpeg({ quality: 80, mozjpeg: true }).toBuffer();
+    output = await sharp(output).jpeg({ quality: 82, mozjpeg: true }).toBuffer();
   }
 
   return `data:image/jpeg;base64,${output.toString("base64")}`;

@@ -1,7 +1,7 @@
 const MAX_DIMENSION = 1024;
-const UPLOAD_MAX_DIMENSION = 1600;
+const UPLOAD_MAX_DIMENSION = 1800;
 const JPEG_QUALITY = 0.72;
-const UPLOAD_JPEG_QUALITY = 0.88;
+const UPLOAD_JPEG_QUALITY = 0.92;
 
 export async function compressImageFile(file: File): Promise<string> {
   if (!file.type.startsWith("image/")) {
@@ -23,7 +23,7 @@ export async function prepareImageForAnalysis(dataUrl: string): Promise<string> 
     const dims = await getImageDimensions(dataUrl);
     if (Math.max(dims.width, dims.height) <= UPLOAD_MAX_DIMENSION) {
       const bytes = Math.ceil((dataUrl.length * 3) / 4);
-      if (bytes <= 1_000_000) return dataUrl;
+      if (bytes <= 1_400_000) return dataUrl;
     }
     return await compressDataUrlWithOptions(dataUrl, UPLOAD_MAX_DIMENSION, UPLOAD_JPEG_QUALITY);
   } catch {
