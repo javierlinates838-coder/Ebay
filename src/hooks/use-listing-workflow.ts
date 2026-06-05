@@ -59,13 +59,15 @@ const initialState: ListingWorkflowState = {
 export function useListingWorkflow() {
   const [state, setState] = useState<ListingWorkflowState>(initialState);
   const photosRef = useRef<string[]>([]);
+  const stateRef = useRef(state);
 
   useEffect(() => {
     photosRef.current = state.photos;
-  }, [state.photos]);
+    stateRef.current = state;
+  }, [state]);
 
   const setStep = useCallback((step: ListingStep) => {
-    setState((s) => ({ ...s, step }));
+    setState((s) => ({ ...s, step, error: null }));
   }, []);
 
   const addPhotos = useCallback((photos: string[]) => {
@@ -94,7 +96,7 @@ export function useListingWorkflow() {
 
     try {
       const prepared = await Promise.all(
-        photos.slice(0, 4).map((photo) => prepareImageForAnalysis(photo))
+        photos.slice(0, 3).map((photo) => prepareImageForAnalysis(photo))
       );
 
       const formData = new FormData();
@@ -106,21 +108,42 @@ export function useListingWorkflow() {
         method: "POST",
         body: formData,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Analysis failed");
+
+      let data: {
+        analysis?: ProductAnalysis;
+        source?: string;
+        warning?: string;
+        error?: string;
+      };
+
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error("Server returned an invalid response. Try again.");
+      }
+
+      if (!res.ok && !data.analysis) {
+        throw new Error(data.error || "Analysis failed");
+      }
+
+      if (!data.analysis) {
+        throw new Error(data.error || "No analysis returned");
+      }
 
       setState((s) => ({
         ...s,
-        analysis: data.analysis,
-        analysisSource: data.source ?? null,
+        analysis: data.analysis!,
+        analysisSource: (data.source as ListingWorkflowState["analysisSource"]) ?? null,
         analysisWarning: data.warning ?? null,
         step: "analysis",
         loading: false,
+        error: null,
       }));
+
       return {
-        analysis: data.analysis as ProductAnalysis,
+        analysis: data.analysis,
         source: data.source,
-        warning: data.warning as string | undefined,
+        warning: data.warning,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Analysis failed";
@@ -138,7 +161,9 @@ export function useListingWorkflow() {
         body: JSON.stringify({ query, analysis }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Market research failed");
+      if (!res.ok || !data.market) {
+        throw new Error(data.error || "Market research failed");
+      }
 
       setState((s) => ({
         ...s,
@@ -148,6 +173,7 @@ export function useListingWorkflow() {
         listingPrice: data.market.suggestedListingPrice,
         step: "market",
         loading: false,
+        error: null,
       }));
       return { market: data.market, pricing: data.pricing, source: data.source };
     } catch (err) {
@@ -158,25 +184,34 @@ export function useListingWorkflow() {
   }, []);
 
   const generateListing = useCallback(async () => {
-    if (!state.analysis) return;
+    const current = stateRef.current;
+    if (!current.analysis) {
+      setState((s) => ({ ...s, error: "Complete product analysis first" }));
+      return;
+    }
+
     setState((s) => ({ ...s, loading: true, error: null }));
+
     try {
       const res = await fetch("/api/ai/generate-listing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          analysis: state.analysis,
-          marketPrice: state.listingPrice,
+          analysis: current.analysis,
+          marketPrice: current.listingPrice,
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Listing generation failed");
+      if (!res.ok || !data.listing) {
+        throw new Error(data.error || "Listing generation failed");
+      }
 
       setState((s) => ({
         ...s,
         generatedListing: data.listing,
         step: "listing",
         loading: false,
+        error: null,
       }));
       return data.listing as GeneratedListing;
     } catch (err) {
@@ -184,62 +219,48 @@ export function useListingWorkflow() {
       setState((s) => ({ ...s, loading: false, error: message }));
       throw err;
     }
-  }, [state.analysis, state.listingPrice]);
+  }, []);
 
-  const calculateProfit = useCallback(async (params: { costOfGoods: number; listingPrice: number; shippingCost?: number }) => {
-    setState((s) => ({ ...s, loading: true, error: null }));
-    try {
-      const shippingCost = params.shippingCost ?? state.generatedListing?.shippingSuggestions.estimatedCost ?? 0;
-      const res = await fetch("/api/profit/calculate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          salePrice: params.listingPrice,
-          shippingCost,
+  const calculateProfit = useCallback(
+    async (params: { costOfGoods: number; listingPrice: number; shippingCost?: number }) => {
+      setState((s) => ({ ...s, loading: true, error: null }));
+      try {
+        const shippingCost =
+          params.shippingCost ??
+          state.generatedListing?.shippingSuggestions.estimatedCost ??
+          0;
+        const res = await fetch("/api/profit/calculate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            salePrice: params.listingPrice,
+            shippingCost,
+            costOfGoods: params.costOfGoods,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.profit) {
+          throw new Error(data.error || "Profit calculation failed");
+        }
+
+        setState((s) => ({
+          ...s,
+          profit: data.profit,
           costOfGoods: params.costOfGoods,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Profit calculation failed");
-
-      setState((s) => ({
-        ...s,
-        profit: data.profit,
-        costOfGoods: params.costOfGoods,
-        listingPrice: params.listingPrice,
-        step: "profit",
-        loading: false,
-      }));
-      return data.profit as ProfitBreakdown;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Profit calculation failed";
-      setState((s) => ({ ...s, loading: false, error: message }));
-      throw err;
-    }
-  }, [state.generatedListing]);
-
-  const enhancePhoto = useCallback(async (index: number) => {
-    const photo = state.photos[index];
-    if (!photo) return;
-
-    try {
-      const res = await fetch("/api/photos/enhance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: photo }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      setState((s) => {
-        const enhanced = [...s.enhancedPhotos];
-        enhanced[index] = data.enhancedImage;
-        return { ...s, enhancedPhotos: enhanced };
-      });
-    } catch {
-      // Client-side fallback handled in component
-    }
-  }, [state.photos]);
+          listingPrice: params.listingPrice,
+          step: "profit",
+          loading: false,
+          error: null,
+        }));
+        return data.profit as ProfitBreakdown;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Profit calculation failed";
+        setState((s) => ({ ...s, loading: false, error: message }));
+        throw err;
+      }
+    },
+    [state.generatedListing]
+  );
 
   const updateAnalysis = useCallback((analysis: ProductAnalysis) => {
     setState((s) => ({ ...s, analysis }));
@@ -255,7 +276,13 @@ export function useListingWorkflow() {
 
   const loadFromListing = useCallback((listing: Listing) => {
     setState({
-      step: listing.generated_listing ? "review" : listing.market_research ? "market" : listing.product_analysis ? "analysis" : "photos",
+      step: listing.generated_listing
+        ? "review"
+        : listing.market_research
+          ? "market"
+          : listing.product_analysis
+            ? "analysis"
+            : "photos",
       photos: listing.photos || [],
       enhancedPhotos: listing.enhanced_photos || [],
       analysis: listing.product_analysis,
@@ -302,7 +329,6 @@ export function useListingWorkflow() {
     researchMarket,
     generateListing,
     calculateProfit,
-    enhancePhoto,
     updateAnalysis,
     updateGeneratedListing,
     loadFromListing,

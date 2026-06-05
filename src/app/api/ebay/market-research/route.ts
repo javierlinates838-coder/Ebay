@@ -15,16 +15,30 @@ export async function POST(request: NextRequest) {
     const query = body.query.trim();
 
     if (isEbayConfigured()) {
+      try {
+        const market = await searchSoldListings(query);
+        return Response.json({
+          market,
+          pricing: analyzePricing(market),
+          source: "ebay-live",
+        });
+      } catch (err) {
+        console.warn("[Market] eBay search failed, falling back:", err);
+      }
+    }
+
+    try {
+      const result = await estimateMarketPricing(query, body.analysis);
+      return Response.json(result);
+    } catch (err) {
+      console.warn("[Market] AI estimate failed, using demo:", err);
       const market = await searchSoldListings(query);
       return Response.json({
         market,
         pricing: analyzePricing(market),
-        source: "ebay-live",
+        source: "demo",
       });
     }
-
-    const result = await estimateMarketPricing(query, body.analysis);
-    return Response.json(result);
   } catch (error) {
     return handleApiError(error);
   }

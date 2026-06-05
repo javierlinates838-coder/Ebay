@@ -4,7 +4,7 @@ import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import type { ProductAnalysis } from "@/types";
 
-const MAX_PHOTOS = 4;
+const MAX_PHOTOS = 3;
 
 const productAnalysisSchema = z.object({
   product: z.string(),
@@ -13,60 +13,29 @@ const productAnalysisSchema = z.object({
   color: z.string(),
   condition: z.string(),
   category: z.string(),
-  confidence: z.number().min(0).max(100),
-  itemSpecifics: z.record(z.string(), z.string()).optional().default({}),
-  identificationNotes: z.string().optional().default(""),
-  conditionNotes: z.string().optional().default(""),
-  searchQuery: z.string().optional().default(""),
-  visibleText: z.array(z.string()).optional().default([]),
+  confidence: z.number(),
+  itemSpecifics: z.record(z.string(), z.string()),
+  identificationNotes: z.string(),
+  conditionNotes: z.string(),
+  searchQuery: z.string(),
+  visibleText: z.array(z.string()),
 });
 
-const DESCRIBE_PROMPT = `You are an expert eBay reseller identifying an item from photos to create a listing.
+const VISION_PROMPT = `You are an expert eBay reseller identifying a product from photos.
 
-Study EVERY photo carefully. Write a thorough identification report with these sections:
+Look at every photo. Identify the item for an eBay listing.
 
-## Item type
-What EXACTLY is this? Be specific — e.g. "Nike baseball cleats with metal spikes" NOT "shoes" or "footwear".
+Rules:
+- Be SPECIFIC: "Nike Alpha Huarache Elite 4 Metal Baseball Cleats" not "shoes"
+- Brand from visible logos/tags (Nike swoosh = Nike)
+- Include all colors in the colorway
+- Condition: New, Like New, Good, Fair, or Poor
+- Quote text you read from tags in visibleText
+- searchQuery: best eBay sold-comp search (brand + product type + color)
+- confidence 85+ when brand logo AND product type are obvious
 
-## Brand
-Brand from logos, tags, or packaging. If Nike swoosh or NIKE text is visible, brand is Nike.
-
-## Model / style / line
-Style name, model number, athlete signature edition, or line name if visible. If not on tags, describe the distinctive style (e.g. "metal spike baseball cleat, mid-cut").
-
-## Colorway
-All colors visible — e.g. "Navy blue upper, red Nike swoosh, yellow tongue/collar".
-
-## Size
-Any size from tags if readable.
-
-## Text read from photos
-Quote EVERY word/number you can read from tags, tongues, heels, insoles, labels.
-
-## Condition
-Visible wear: dirt, scuffs, creasing, missing parts. Used outdoor cleats on grass often show dirt — note it.
-
-## eBay category
-Full path like: Clothing, Shoes & Accessories > Men > Men's Shoes > Athletic Shoes > Baseball & Softball
-
-## eBay search query
-What to search sold listings — brand + product type + color (no condition words).
-
-## Confidence note
-How sure are you? High if brand logo AND product type are obvious from photos.
-
-IMPORTANT: Trust what you SEE. Large visible Nike logos on baseball cleats = Nike baseball cleats. Do not say "unknown" when the brand is clearly visible.`;
-
-const STRUCTURE_PROMPT = `Convert the identification report below into structured eBay listing data.
-
-Use the report AND the photos. Prefer specific product names from the report.
-For itemSpecifics include every detail you can support: Type, Brand, US Shoe Size, Color, Sport, Cleat Type, Material, Department, etc.
-
-Confidence guide:
-- 85-100: Brand clearly visible (logo/tag) AND product type obvious
-- 70-84: Brand OR exact product type clear
-- 50-69: Category clear, brand uncertain
-- Below 50: only if truly ambiguous`;
+Respond with ONLY valid JSON (no markdown):
+{"product":"","brand":"","model":"","color":"","condition":"Good","category":"","confidence":85,"itemSpecifics":{},"identificationNotes":"","conditionNotes":"","searchQuery":"","visibleText":[]}`;
 
 function getGeminiApiKey(): string | undefined {
   return (
@@ -88,8 +57,9 @@ function getAnalysisModels(): string[] {
     process.env.GEMINI_VISION_MODEL?.trim() ||
     process.env.GEMINI_ANALYSIS_MODEL?.trim() ||
     "gemini-2.5-flash";
-  const fallbacks = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
-  return [primary, ...fallbacks.filter((m) => m !== primary)];
+  return [primary, "gemini-2.5-flash", "gemini-2.0-flash"].filter(
+    (m, i, arr) => arr.indexOf(m) === i
+  );
 }
 
 function getModel(modelName: string): LanguageModel {
@@ -110,10 +80,7 @@ function geminiOptions() {
 
 function toVisionContent(imageUrls: string[]) {
   return [
-    {
-      type: "text" as const,
-      text: `${imageUrls.length} product photo(s) attached. Analyze all of them together.`,
-    },
+    { type: "text" as const, text: `${imageUrls.length} product photo(s):` },
     ...imageUrls.map((url) => {
       const match = url.match(/^data:(image\/[^;]+);base64,/);
       return {
@@ -128,204 +95,95 @@ function toVisionContent(imageUrls: string[]) {
 function normalizeCondition(raw: string): ProductAnalysis["condition"] {
   const lower = raw.toLowerCase().trim();
   if (lower.includes("like new")) return "Like New";
-  if (lower.includes("brand new") || (lower.includes("new") && !lower.includes("like"))) return "New";
-  if (lower.includes("fair") || lower.includes("acceptable")) return "Fair";
-  if (lower.includes("poor") || lower.includes("damaged") || lower.includes("for parts")) return "Poor";
+  if (lower.includes("brand new") || (lower === "new")) return "New";
+  if (lower.includes("fair")) return "Fair";
+  if (lower.includes("poor") || lower.includes("damaged")) return "Poor";
   return "Good";
 }
 
-function parseLooseAnalysis(data: unknown): z.infer<typeof productAnalysisSchema> {
+function extractJson(text: string): unknown {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenced?.[1]) {
+    try {
+      return JSON.parse(fenced[1].trim());
+    } catch {
+      /* try next */
+    }
+  }
+  const match = text.match(/\{[\s\S]*\}/);
+  if (match) {
+    return JSON.parse(match[0]);
+  }
+  throw new Error("No JSON in model response");
+}
+
+function parseAnalysis(data: unknown): ProductAnalysis {
   const obj = (typeof data === "object" && data !== null ? data : {}) as Record<string, unknown>;
-  return productAnalysisSchema.parse({
-    product: obj.product ?? obj.name ?? obj.title ?? "Unknown product",
-    brand: obj.brand ?? obj.manufacturer ?? "Unknown",
-    model: obj.model ?? obj.style ?? "Not visible",
-    color: obj.color ?? obj.colour ?? "Unknown",
-    condition: obj.condition ?? "Good",
-    category: obj.category ?? "General",
-    confidence: typeof obj.confidence === "number" ? obj.confidence : 70,
-    itemSpecifics: obj.itemSpecifics ?? obj.item_specifics ?? {},
-    identificationNotes: obj.identificationNotes ?? obj.notes ?? "",
-    conditionNotes: obj.conditionNotes ?? "",
-    searchQuery: obj.searchQuery ?? obj.search_query ?? "",
-    visibleText: obj.visibleText ?? obj.visible_text ?? [],
-  });
-}
-
-function normalizeAnalysis(raw: z.infer<typeof productAnalysisSchema>): ProductAnalysis {
-  const brand = raw.brand.trim() || "Unknown";
-  const product = raw.product.trim() || "Unknown product";
+  const brand = String(obj.brand ?? obj.manufacturer ?? "Unknown").trim();
+  const product = String(obj.product ?? obj.name ?? "Unknown product").trim();
+  const model = String(obj.model ?? obj.style ?? "Not visible").trim();
+  const color = String(obj.color ?? obj.colour ?? "Unknown").trim();
   const searchQuery =
-    raw.searchQuery?.trim() ||
-    [brand, raw.model, product]
-      .filter((p) => p && !["Unknown", "Not visible", "Unbranded"].includes(p))
-      .join(" ")
-      .trim();
+    String(obj.searchQuery ?? obj.search_query ?? "").trim() ||
+    [brand, model, product].filter((p) => !["Unknown", "Not visible"].includes(p)).join(" ");
 
-  return {
-    product,
-    brand,
-    model: raw.model.trim() || "Not visible",
-    color: raw.color.trim() || "Unknown",
-    condition: normalizeCondition(raw.condition),
-    category: raw.category.trim() || "General",
-    confidence: Math.min(100, Math.max(0, Math.round(raw.confidence))),
-    itemSpecifics: raw.itemSpecifics ?? {},
-    searchQuery: searchQuery || product,
-    visibleText: (raw.visibleText ?? []).filter(Boolean),
-    identificationNotes: raw.identificationNotes?.trim() || undefined,
-    conditionNotes: raw.conditionNotes?.trim() || undefined,
-  };
-}
+  const rawSpecifics = obj.itemSpecifics ?? obj.item_specifics;
+  const itemSpecifics =
+    typeof rawSpecifics === "object" && rawSpecifics !== null
+      ? (rawSpecifics as Record<string, string>)
+      : {};
 
-/** Boost/fix analysis using the free-form description when structured output was too generic */
-function enrichFromDescription(
-  analysis: ProductAnalysis,
-  description: string
-): ProductAnalysis {
-  const desc = description.toLowerCase();
-  const brands = [
-    "Nike", "Adidas", "Jordan", "New Balance", "Puma", "Reebok", "Under Armour",
-    "Patagonia", "North Face", "Apple", "Samsung", "Sony", "Louis Vuitton",
-    "Gucci", "Coach", "Carhartt", "Levi's", "Yeti", "Rawlings", "Mizuno",
-  ];
-
-  let brand = analysis.brand;
-  if (brand === "Unknown" || brand === "Unbranded") {
-    for (const b of brands) {
-      if (desc.includes(b.toLowerCase())) {
-        brand = b;
-        break;
-      }
-    }
-  }
-
-  let product = analysis.product;
-  const genericProduct =
-    /^(unknown|shoes|footwear|sneakers|cleats|item|product|clothing|apparel)/i.test(product) ||
-    product.length < 12;
-
-  if (genericProduct) {
-    const typeMatch = description.match(
-      /## Item type\s*\n+([\s\S]*?)(?=\n## |\n# |$)/i
-    );
-    if (typeMatch?.[1]?.trim()) {
-      product = typeMatch[1].trim().split("\n")[0].slice(0, 120);
-    }
-  }
-
-  // Footwear / cleats category fix
-  const isCleats =
-    desc.includes("cleat") || desc.includes("spike") || desc.includes("baseball");
-  const isNike = brand === "Nike" || desc.includes("nike");
-
-  let category = analysis.category;
-  if (isCleats && category === "General") {
-    category =
-      "Clothing, Shoes & Accessories > Men > Men's Shoes > Athletic Shoes > Baseball & Softball";
-  }
-
-  let itemSpecifics = { ...analysis.itemSpecifics };
-  if (isCleats) {
-    itemSpecifics = {
-      ...itemSpecifics,
-      Type: itemSpecifics.Type || "Cleats",
-      Sport: itemSpecifics.Sport || "Baseball",
-      Brand: brand !== "Unknown" ? brand : itemSpecifics.Brand || "Nike",
-    };
-    if (isNike && genericProduct) {
-      product = product.match(/cleat|spike|baseball/i)
-        ? product
-        : `Nike Baseball Cleats${analysis.color !== "Unknown" ? ` ${analysis.color}` : ""}`;
-    }
-  }
-
-  const visibleFromDesc = description.match(/## Text read from photos\s*\n+([\s\S]*?)(?=\n## |$)/i);
-  const extraText = visibleFromDesc?.[1]
-    ? visibleFromDesc[1]
-        .split("\n")
-        .map((l) => l.replace(/^[-*]\s*/, "").trim())
-        .filter((l) => l.length > 1 && l.length < 80)
+  const rawVisible = obj.visibleText ?? obj.visible_text;
+  const visibleText = Array.isArray(rawVisible)
+    ? rawVisible.map(String).filter(Boolean)
     : [];
 
-  const visibleText = [...new Set([...(analysis.visibleText ?? []), ...extraText])].slice(0, 12);
-
-  let confidence = analysis.confidence;
-  if (brand !== "Unknown" && brand !== analysis.brand) confidence = Math.max(confidence, 80);
-  if (isNike && isCleats && genericProduct) confidence = Math.max(confidence, 85);
-  if (visibleText.some((t) => /nike/i.test(t))) confidence = Math.max(confidence, 88);
-
   return {
-    ...analysis,
-    brand,
     product,
-    category,
+    brand,
+    model,
+    color,
+    condition: normalizeCondition(String(obj.condition ?? "Good")),
+    category: String(obj.category ?? "General").trim(),
+    confidence: Math.min(100, Math.max(0, Math.round(Number(obj.confidence) || 70))),
     itemSpecifics,
+    searchQuery: searchQuery || product,
     visibleText,
-    confidence,
-    identificationNotes:
-      analysis.identificationNotes ||
-      description.slice(0, 400).replace(/\n{3,}/g, "\n\n"),
+    identificationNotes: String(obj.identificationNotes ?? obj.notes ?? "").trim() || undefined,
+    conditionNotes: String(obj.conditionNotes ?? "").trim() || undefined,
   };
 }
 
-async function describeProduct(modelName: string, imageUrls: string[]): Promise<string> {
+async function analyzeWithTextJson(modelName: string, photos: string[]): Promise<ProductAnalysis> {
   const model = getModel(modelName);
   const { text } = await generateText({
     model,
     messages: [
       {
         role: "user",
-        content: [{ type: "text", text: DESCRIBE_PROMPT }, ...toVisionContent(imageUrls)],
+        content: [{ type: "text", text: VISION_PROMPT }, ...toVisionContent(photos)],
       },
     ],
     maxOutputTokens: 2000,
     ...geminiOptions(),
   });
-  return text.trim();
+  return parseAnalysis(extractJson(text));
 }
 
-async function structureProduct(
-  modelName: string,
-  imageUrls: string[],
-  description: string
-): Promise<ProductAnalysis> {
+async function analyzeWithStructured(modelName: string, photos: string[]): Promise<ProductAnalysis> {
   const model = getModel(modelName);
-  const prompt = `${STRUCTURE_PROMPT}\n\n--- IDENTIFICATION REPORT ---\n${description}`;
-
-  const messages = [
-    {
-      role: "user" as const,
-      content: [{ type: "text" as const, text: prompt }, ...toVisionContent(imageUrls)],
-    },
-  ];
-
-  try {
-    const { object } = await generateObject({
-      model,
-      schema: productAnalysisSchema,
-      messages,
-      ...geminiOptions(),
-    });
-    return normalizeAnalysis(object);
-  } catch {
-    const { text } = await generateText({
-      model,
-      messages: [
-        ...messages,
-        {
-          role: "user" as const,
-          content:
-            'Output ONLY JSON: {"product":"","brand":"","model":"","color":"","condition":"Good","category":"","confidence":85,"itemSpecifics":{},"identificationNotes":"","conditionNotes":"","searchQuery":"","visibleText":[]}',
-        },
-      ],
-      maxOutputTokens: 1500,
-      ...geminiOptions(),
-    });
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("Could not parse structured analysis");
-    return normalizeAnalysis(parseLooseAnalysis(JSON.parse(jsonMatch[0])));
-  }
+  const { object } = await generateObject({
+    model,
+    schema: productAnalysisSchema,
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: VISION_PROMPT }, ...toVisionContent(photos)],
+      },
+    ],
+    ...geminiOptions(),
+  });
+  return parseAnalysis(object);
 }
 
 export async function runProductAnalysis(imageUrls: string[]): Promise<ProductAnalysis> {
@@ -337,25 +195,24 @@ export async function runProductAnalysis(imageUrls: string[]): Promise<ProductAn
 
   for (const modelName of models) {
     try {
-      const description = await describeProduct(modelName, photos);
-      let analysis = await structureProduct(modelName, photos, description);
-      analysis = enrichFromDescription(analysis, description);
-      return analysis;
+      return await analyzeWithTextJson(modelName, photos);
     } catch (err) {
       lastError = err;
-      console.warn(`[AI] Analysis failed on ${modelName}:`, err);
+      console.warn(`[AI] Text JSON failed (${modelName}):`, err);
+    }
+    try {
+      return await analyzeWithStructured(modelName, photos);
+    } catch (err) {
+      lastError = err;
+      console.warn(`[AI] Structured failed (${modelName}):`, err);
     }
   }
 
-  // Fewer photos retry
-  if (photos.length > 2) {
-    const subset = [photos[0], photos[Math.min(1, photos.length - 1)]];
-    for (const modelName of models.slice(0, 2)) {
+  if (photos.length > 1) {
+    const one = [photos[0]];
+    for (const modelName of models.slice(0, 1)) {
       try {
-        const description = await describeProduct(modelName, subset);
-        let analysis = await structureProduct(modelName, subset, description);
-        analysis = enrichFromDescription(analysis, description);
-        return analysis;
+        return await analyzeWithTextJson(modelName, one);
       } catch (err) {
         lastError = err;
       }

@@ -156,47 +156,58 @@ export async function estimateMarketPricing(
     };
   }
 
-  const { object } = await generateObject({
-    model: getTextModel(),
-    schema: marketEstimateSchema,
-    prompt: `You are an expert eBay reseller pricing analyst. Estimate realistic sold-price ranges for this item on eBay US.
+  try {
+    const { object } = await generateObject({
+      model: getTextModel(),
+      schema: marketEstimateSchema,
+      prompt: `You are an expert eBay reseller pricing analyst. Estimate realistic sold-price ranges for this item on eBay US.
 
 Search query: ${query}
 ${analysis ? `Product: ${analysis.product}\nBrand: ${analysis.brand}\nModel: ${analysis.model}\nCondition: ${analysis.condition}\nCategory: ${analysis.category}` : ""}
 
 Base your estimate on typical eBay resale values for similar items. Be realistic — not optimistic.
 Provide sample comp titles and prices that resemble what you'd expect to see.`,
-    ...(isGeminiConfigured()
-      ? { providerOptions: { google: { structuredOutputs: false } } }
-      : {}),
-  });
+      ...(isGeminiConfigured()
+        ? { providerOptions: { google: { structuredOutputs: false } } }
+        : {}),
+    });
 
-  const soldComps = object.sampleCompTitles.map((title, i) => ({
-    title,
-    price: object.sampleCompPrices[i] ?? object.averageSoldPrice,
-    soldDate: new Date(Date.now() - i * 4 * 24 * 60 * 60 * 1000).toISOString(),
-    condition: analysis?.condition,
-  }));
+    const soldComps = object.sampleCompTitles.map((title, i) => ({
+      title,
+      price: object.sampleCompPrices[i] ?? object.averageSoldPrice,
+      soldDate: new Date(Date.now() - i * 4 * 24 * 60 * 60 * 1000).toISOString(),
+      condition: analysis?.condition,
+    }));
 
-  const market: MarketResearch = {
-    averageSoldPrice: object.averageSoldPrice,
-    highestSoldPrice: object.highestSoldPrice,
-    lowestSoldPrice: object.lowestSoldPrice,
-    numberSold: soldComps.length || 8,
-    recentSalesTrend: object.recentSalesTrend,
-    suggestedListingPrice: object.suggestedListingPrice,
-    suggestedAuctionPrice: object.suggestedAuctionPrice,
-    soldComps,
-  };
+    const market: MarketResearch = {
+      averageSoldPrice: object.averageSoldPrice,
+      highestSoldPrice: object.highestSoldPrice,
+      lowestSoldPrice: object.lowestSoldPrice,
+      numberSold: soldComps.length || 8,
+      recentSalesTrend: object.recentSalesTrend,
+      suggestedListingPrice: object.suggestedListingPrice,
+      suggestedAuctionPrice: object.suggestedAuctionPrice,
+      soldComps,
+    };
 
-  return {
-    market,
-    pricing: {
-      ...analyzePricing(market),
-      reasoning: object.reasoning,
-    },
-    source: "ai-estimate",
-  };
+    return {
+      market,
+      pricing: {
+        ...analyzePricing(market),
+        reasoning: object.reasoning,
+      },
+      source: "ai-estimate",
+    };
+  } catch (err) {
+    console.warn("[AI] Market pricing failed, using demo:", err);
+    const { searchSoldListings } = await import("@/lib/ebay/client");
+    const market = await searchSoldListings(query);
+    return {
+      market,
+      pricing: analyzePricing(market),
+      source: "demo",
+    };
+  }
 }
 
 export async function generateListing(params: {

@@ -1,9 +1,7 @@
 const MAX_DIMENSION = 1024;
-const ANALYSIS_MAX_DIMENSION = 2048;
+const UPLOAD_MAX_DIMENSION = 1280;
 const JPEG_QUALITY = 0.72;
-const ANALYSIS_JPEG_QUALITY = 0.93;
-const ALWAYS_COMPRESS_ABOVE_BYTES = 150_000;
-const ANALYSIS_SKIP_BELOW_BYTES = 2_500_000;
+const UPLOAD_JPEG_QUALITY = 0.78;
 
 export async function compressImageFile(file: File): Promise<string> {
   if (!file.type.startsWith("image/")) {
@@ -12,14 +10,33 @@ export async function compressImageFile(file: File): Promise<string> {
 
   const dataUrl = await readFileAsDataUrl(file);
 
-  if (file.size <= ALWAYS_COMPRESS_ABOVE_BYTES && file.type === "image/jpeg") {
-    return dataUrl;
-  }
-
   try {
-    return await compressDataUrl(dataUrl);
+    return await compressDataUrlWithOptions(dataUrl, MAX_DIMENSION, JPEG_QUALITY);
   } catch {
     return dataUrl;
+  }
+}
+
+/** Smaller images for API upload — avoids Vercel 413 body limit */
+export async function prepareImageForAnalysis(dataUrl: string): Promise<string> {
+  try {
+    const dims = await getImageDimensions(dataUrl);
+    if (Math.max(dims.width, dims.height) <= UPLOAD_MAX_DIMENSION) {
+      const bytes = Math.ceil((dataUrl.length * 3) / 4);
+      if (bytes <= 800_000) return dataUrl;
+    }
+    return await compressDataUrlWithOptions(dataUrl, UPLOAD_MAX_DIMENSION, UPLOAD_JPEG_QUALITY);
+  } catch {
+    return dataUrl;
+  }
+}
+
+/** Tiny thumbnail for localStorage inventory cards */
+export async function createThumbnail(dataUrl: string): Promise<string> {
+  try {
+    return await compressDataUrlWithOptions(dataUrl, 200, 0.6);
+  } catch {
+    return "";
   }
 }
 
@@ -30,31 +47,6 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(new Error("Failed to read image"));
     reader.readAsDataURL(file);
   });
-}
-
-function compressDataUrl(dataUrl: string): Promise<string> {
-  return compressDataUrlWithOptions(dataUrl, MAX_DIMENSION, JPEG_QUALITY);
-}
-
-/** Preserve detail for AI — only downscale if very large */
-export async function prepareImageForAnalysis(dataUrl: string): Promise<string> {
-  const byteSize = Math.ceil((dataUrl.length * 3) / 4);
-  if (byteSize <= ANALYSIS_SKIP_BELOW_BYTES) {
-    try {
-      const dims = await getImageDimensions(dataUrl);
-      if (Math.max(dims.width, dims.height) <= ANALYSIS_MAX_DIMENSION) {
-        return dataUrl;
-      }
-    } catch {
-      return dataUrl;
-    }
-  }
-
-  try {
-    return await compressDataUrlWithOptions(dataUrl, ANALYSIS_MAX_DIMENSION, ANALYSIS_JPEG_QUALITY);
-  } catch {
-    return dataUrl;
-  }
 }
 
 function getImageDimensions(dataUrl: string): Promise<{ width: number; height: number }> {

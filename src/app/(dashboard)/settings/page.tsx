@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ExternalLink, Link2, CheckCircle2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -35,8 +35,9 @@ export default function SettingsPage() {
 
 function SettingsContent() {
   const searchParams = useSearchParams();
+  const toastShown = useRef(false);
   const [connecting, setConnecting] = useState(false);
-  const [connected, setConnected] = useState(false);
+  const connected = searchParams.get("ebay_connected") === "true";
   const [config, setConfig] = useState<AppConfig | null>(null);
 
   useEffect(() => {
@@ -47,15 +48,15 @@ function SettingsContent() {
   }, []);
 
   useEffect(() => {
+    if (toastShown.current) return;
     const ebayConnected = searchParams.get("ebay_connected");
     const ebayError = searchParams.get("ebay_error");
 
     if (ebayConnected === "true") {
-      setConnected(true);
+      toastShown.current = true;
       toast.success("eBay account connected");
-    }
-
-    if (ebayError) {
+    } else if (ebayError) {
+      toastShown.current = true;
       toast.error(`eBay connection failed: ${ebayError.replace(/_/g, " ")}`);
     }
   }, [searchParams]);

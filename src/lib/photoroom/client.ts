@@ -9,7 +9,7 @@ export async function enhancePhoto(
   const apiKey = process.env.PHOTOROOM_API_KEY;
 
   if (!apiKey) {
-    return enhancePhotoFallback(imageBase64, options);
+    return enhancePhotoFallback(imageBase64);
   }
 
   try {
@@ -31,7 +31,7 @@ export async function enhancePhoto(
     });
 
     if (!response.ok) {
-      return enhancePhotoFallback(imageBase64, options);
+      return enhancePhotoFallback(imageBase64);
     }
 
     const resultBuffer = await response.arrayBuffer();
@@ -46,8 +46,7 @@ export async function enhancePhoto(
 }
 
 async function enhancePhotoFallback(
-  imageBase64: string,
-  options: { removeBackground?: boolean; improveQuality?: boolean }
+  imageBase64: string
 ): Promise<{ enhancedImage: string }> {
   // Return original with metadata indicating demo mode
   // In production without PhotoRoom, client-side canvas enhancement is used

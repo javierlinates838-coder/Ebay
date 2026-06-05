@@ -1,4 +1,5 @@
 import type { GeneratedListing, ProductAnalysis } from "@/types";
+import { dataUrlToBlob } from "@/lib/data-url";
 
 export function buildListingExportText(params: {
   listing: GeneratedListing;
@@ -58,14 +59,17 @@ export async function downloadPhotosAsZip(
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
 
-  await Promise.all(
-    photos.map(async (photo, index) => {
-      const response = await fetch(photo);
-      const blob = await response.blob();
+  for (const [index, photo] of photos.entries()) {
+    try {
+      const blob = photo.startsWith("data:")
+        ? dataUrlToBlob(photo)
+        : await fetch(photo).then((r) => r.blob());
       const ext = blob.type.includes("png") ? "png" : "jpg";
       zip.file(`photo-${index + 1}.${ext}`, blob);
-    })
-  );
+    } catch {
+      // skip bad photo
+    }
+  }
 
   const content = await zip.generateAsync({ type: "blob" });
   const url = URL.createObjectURL(content);
