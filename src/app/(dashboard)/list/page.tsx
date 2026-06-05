@@ -91,9 +91,9 @@ function NewListingContent() {
       } else if (result.source === "demo") {
         toast.info("Demo mode — add GEMINI_API_KEY in Vercel for real AI identification.");
       } else if (result.analysis.confidence >= 80) {
-        toast.success("Product identified with high confidence!");
+        toast.success("Product identified!");
       } else {
-        toast.success("Product identified — verify details below.");
+        toast.success("Analysis complete — verify details below.");
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Analysis failed");

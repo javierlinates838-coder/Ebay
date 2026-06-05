@@ -10,33 +10,33 @@ const productAnalysisSchema = z.object({
   brand: z.string(),
   model: z.string(),
   color: z.string(),
-  condition: z.enum(["New", "Like New", "Good", "Fair", "Poor"]),
+  condition: z.string(),
   category: z.string(),
   confidence: z.number().min(0).max(100),
-  itemSpecifics: z.record(z.string(), z.string()),
-  identificationNotes: z.string(),
-  conditionNotes: z.string(),
-  searchQuery: z.string(),
-  visibleText: z.array(z.string()),
+  itemSpecifics: z.record(z.string(), z.string()).optional().default({}),
+  identificationNotes: z.string().optional().default(""),
+  conditionNotes: z.string().optional().default(""),
+  searchQuery: z.string().optional().default(""),
+  visibleText: z.array(z.string()).optional().default([]),
 });
 
 const REFINEMENT_CONFIDENCE_THRESHOLD = 65;
-const MAX_ANALYSIS_PHOTOS = 8;
+const MAX_ANALYSIS_PHOTOS = 6;
 
-const TEXT_EXTRACTION_PROMPT = `You are an expert OCR assistant for eBay resellers. Transcribe ALL readable text from every product photo.
+const CONDITIONS = ["New", "Like New", "Good", "Fair", "Poor"] as const;
+type Condition = (typeof CONDITIONS)[number];
 
-For each photo, list:
-- Photo number
-- Every word, number, and code you can read (brand names, model numbers, SKUs, sizes, care labels, serial numbers, barcodes, country of origin, material tags)
-- If text is partially obscured, write what you can see with [?] for unclear characters
+function normalizeCondition(raw: string): Condition {
+  const lower = raw.toLowerCase().trim();
+  if (lower.includes("like new") || lower.includes("like-new")) return "Like New";
+  if (lower === "new" || lower.startsWith("new ") || lower.includes("brand new")) return "New";
+  if (lower.includes("fair") || lower.includes("acceptable")) return "Fair";
+  if (lower.includes("poor") || lower.includes("damaged") || lower.includes("for parts")) return "Poor";
+  if (lower.includes("good") || lower.includes("used") || lower.includes("pre-owned")) return "Good";
+  return "Good";
+}
 
-Format:
-Photo 1: [text found]
-Photo 2: [text found]
-
-If no readable text in a photo, write "Photo N: (no readable text — describe visual features instead: color, shape, logos without text)"
-
-Be exhaustive. Resellers depend on tag/label text for accurate identification.`;
+const TEXT_EXTRACTION_PROMPT = `Transcribe ALL readable text from these product photos — brand names, NIKE tags, model codes, sizes, care labels, serial numbers. List by photo number. If no text, note visible logos/colors.`;
 
 const ANALYSIS_PROMPT = `You are a senior eBay reseller with 15 years of experience identifying products from photos for listings.
 
@@ -88,11 +88,18 @@ function getVisionModelName(forAnalysis = false): string {
     return (
       process.env.GEMINI_VISION_MODEL?.trim() ||
       process.env.GEMINI_ANALYSIS_MODEL?.trim() ||
-      "gemini-2.5-pro"
+      "gemini-2.5-flash"
     );
   }
   return process.env.GEMINI_FAST_MODEL?.trim() || "gemini-2.5-flash";
 }
+
+/** Fallback models if primary fails (404, quota, etc.) */
+const ANALYSIS_MODEL_FALLBACKS = [
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash",
+];
 
 const listingSchema = z.object({
   title: z.string().max(80),
@@ -140,10 +147,10 @@ export function getAIProviderName(): "gemini" | "openai" | null {
   return null;
 }
 
-function getVisionModel(forAnalysis = false): LanguageModel {
+function getVisionModel(forAnalysis = false, modelName?: string): LanguageModel {
   if (isGeminiConfigured()) {
     const google = createGoogleGenerativeAI({ apiKey: getGeminiApiKey() });
-    return google(getVisionModelName(forAnalysis));
+    return google(modelName ?? getVisionModelName(forAnalysis));
   }
 
   if (isOpenAIConfigured()) {
@@ -205,33 +212,71 @@ function geminiOptions() {
     : {};
 }
 
-async function extractVisibleText(imageUrls: string[]): Promise<string> {
-  const model = getVisionModel(true);
-  const { text } = await generateText({
-    model,
-    messages: [
-      {
-        role: "user",
-        content: [{ type: "text", text: TEXT_EXTRACTION_PROMPT }, ...toLabeledImageContent(imageUrls)],
-      },
-    ],
-    ...geminiOptions(),
-  });
-  return text.trim();
+function getModelCandidates(): string[] {
+  const primary = getVisionModelName(true);
+  const fallbacks = ANALYSIS_MODEL_FALLBACKS.filter((m) => m !== primary);
+  return [primary, ...fallbacks];
 }
 
-async function identifyProduct(
+function parseLooseAnalysis(data: unknown): z.infer<typeof productAnalysisSchema> {
+  if (typeof data === "object" && data !== null) {
+    const obj = data as Record<string, unknown>;
+    return productAnalysisSchema.parse({
+      product: obj.product ?? obj.name ?? obj.title ?? "Unknown product",
+      brand: obj.brand ?? obj.manufacturer ?? "Unknown",
+      model: obj.model ?? obj.style ?? obj.styleNumber ?? "Not visible",
+      color: obj.color ?? obj.colour ?? "Unknown",
+      condition: obj.condition ?? "Good",
+      category: obj.category ?? "General",
+      confidence: typeof obj.confidence === "number" ? obj.confidence : 50,
+      itemSpecifics: obj.itemSpecifics ?? obj.item_specifics ?? {},
+      identificationNotes: obj.identificationNotes ?? obj.notes ?? "",
+      conditionNotes: obj.conditionNotes ?? "",
+      searchQuery: obj.searchQuery ?? obj.search_query ?? "",
+      visibleText: obj.visibleText ?? obj.visible_text ?? [],
+    });
+  }
+  throw new Error("Invalid analysis response");
+}
+
+function normalizeAnalysis(raw: z.infer<typeof productAnalysisSchema>): ProductAnalysis {
+  const condition = normalizeCondition(raw.condition);
+  const searchQuery =
+    raw.searchQuery?.trim() ||
+    [raw.brand, raw.model, raw.product.split(" ").slice(0, 4).join(" ")]
+      .filter((p) => p && p !== "Unknown" && p !== "Not visible" && p !== "Unbranded")
+      .join(" ")
+      .trim();
+
+  return {
+    product: raw.product.trim() || "Unknown product",
+    brand: raw.brand.trim() || "Unknown",
+    model: raw.model.trim() || "Not visible",
+    color: raw.color.trim() || "Unknown",
+    condition,
+    category: raw.category.trim() || "General",
+    confidence: Math.min(100, Math.max(0, Math.round(raw.confidence))),
+    itemSpecifics: raw.itemSpecifics ?? {},
+    searchQuery: searchQuery || raw.product,
+    visibleText: (raw.visibleText ?? []).filter(Boolean),
+    identificationNotes: raw.identificationNotes?.trim() || undefined,
+    conditionNotes: raw.conditionNotes?.trim() || undefined,
+  };
+}
+
+async function identifyWithModel(
   imageUrls: string[],
-  extractedText: string,
+  modelName: string,
+  extractedText?: string,
   refinementContext?: ProductAnalysis
 ): Promise<ProductAnalysis> {
-  const model = getVisionModel(true);
+  const model = getVisionModel(true, modelName);
   const contextBlock = extractedText
-    ? `\n\n## Text extracted from photos (OCR)\n${extractedText}`
+    ? `\n\nText visible in photos:\n${extractedText}`
     : "";
 
   const refinementBlock = refinementContext
-    ? `\n\n## Previous attempt (low confidence — improve this)\n${JSON.stringify(refinementContext, null, 2)}\n\n${REFINEMENT_PROMPT}`
+    ? `\n\nPrevious attempt (improve this):\n${JSON.stringify(refinementContext)}\n${REFINEMENT_PROMPT}`
     : "";
 
   const messages = [
@@ -253,7 +298,7 @@ async function identifyProduct(
     });
     return normalizeAnalysis(object);
   } catch (structuredError) {
-    console.warn("[AI] Structured identification failed, retrying with text JSON:", structuredError);
+    console.warn(`[AI] Structured output failed (${modelName}):`, structuredError);
 
     const { text } = await generateText({
       model,
@@ -262,7 +307,7 @@ async function identifyProduct(
         {
           role: "user" as const,
           content:
-            'Respond with ONLY valid JSON matching: {"product":"","brand":"","model":"","color":"","condition":"Good","category":"","confidence":0,"itemSpecifics":{},"identificationNotes":"","conditionNotes":"","searchQuery":"","visibleText":[]}',
+            'Return ONLY JSON: {"product":"","brand":"","model":"","color":"","condition":"Good","category":"","confidence":80,"itemSpecifics":{},"identificationNotes":"","conditionNotes":"","searchQuery":"","visibleText":[]}',
         },
       ],
       ...geminiOptions(),
@@ -271,50 +316,88 @@ async function identifyProduct(
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw structuredError;
 
-    return normalizeAnalysis(productAnalysisSchema.parse(JSON.parse(jsonMatch[0])));
+    return normalizeAnalysis(parseLooseAnalysis(JSON.parse(jsonMatch[0])));
   }
 }
 
-function normalizeAnalysis(raw: z.infer<typeof productAnalysisSchema>): ProductAnalysis {
-  const searchQuery =
-    raw.searchQuery?.trim() ||
-    [raw.brand, raw.model, raw.product.split(" ").slice(0, 3).join(" ")]
-      .filter((p) => p && p !== "Unknown" && p !== "Not visible" && p !== "Unbranded")
-      .join(" ")
-      .trim();
+async function identifyProduct(
+  imageUrls: string[],
+  extractedText: string,
+  refinementContext?: ProductAnalysis
+): Promise<ProductAnalysis> {
+  const models = getModelCandidates();
+  let lastError: unknown;
 
-  return {
-    ...raw,
-    searchQuery: searchQuery || raw.product,
-    visibleText: raw.visibleText?.filter(Boolean) ?? [],
-    identificationNotes: raw.identificationNotes?.trim() || undefined,
-    conditionNotes: raw.conditionNotes?.trim() || undefined,
-  };
+  for (const modelName of models) {
+    try {
+      return await identifyWithModel(imageUrls, modelName, extractedText, refinementContext);
+    } catch (err) {
+      lastError = err;
+      console.warn(`[AI] Model ${modelName} failed:`, err);
+    }
+  }
+
+  throw lastError ?? new Error("All vision models failed");
+}
+
+async function extractVisibleText(imageUrls: string[]): Promise<string> {
+  const model = getVisionModel(true, "gemini-2.5-flash");
+  const { text } = await generateText({
+    model,
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: TEXT_EXTRACTION_PROMPT }, ...toLabeledImageContent(imageUrls.slice(0, 3))],
+      },
+    ],
+    ...geminiOptions(),
+  });
+  return text.trim();
 }
 
 async function runVisionAnalysis(imageUrls: string[]): Promise<ProductAnalysis> {
   const photos = imageUrls.slice(0, MAX_ANALYSIS_PHOTOS);
 
-  // Stage 1: OCR / text extraction from labels and tags
-  let extractedText = "";
+  // Run identification immediately — don't block on OCR
+  let analysis: ProductAnalysis;
   try {
-    extractedText = await extractVisibleText(photos);
-  } catch (err) {
-    console.warn("[AI] Text extraction failed, continuing with images only:", err);
+    analysis = await identifyProduct(photos, "");
+  } catch (firstPassError) {
+    console.warn("[AI] First pass failed, retrying with fewer photos:", firstPassError);
+    analysis = await identifyProduct(photos.slice(0, 3), "");
   }
 
-  // Stage 2: Full product identification
-  let analysis = await identifyProduct(photos, extractedText);
-
-  // Stage 3: Refinement pass if confidence is low
-  if (analysis.confidence < REFINEMENT_CONFIDENCE_THRESHOLD) {
+  // Enrich with OCR if brand still unknown and we have time
+  if (analysis.confidence < 80 || analysis.brand === "Unknown") {
     try {
-      const refined = await identifyProduct(photos, extractedText, analysis);
+      const extractedText = await extractVisibleText(photos);
+      if (extractedText) {
+        const enriched = await identifyWithModel(
+          photos,
+          getModelCandidates()[0],
+          extractedText,
+          analysis.confidence < REFINEMENT_CONFIDENCE_THRESHOLD ? analysis : undefined
+        );
+        if (enriched.confidence >= analysis.confidence) {
+          analysis = enriched;
+        }
+      }
+    } catch (err) {
+      console.warn("[AI] OCR enrichment skipped:", err);
+    }
+  } else if (analysis.confidence < REFINEMENT_CONFIDENCE_THRESHOLD) {
+    try {
+      const refined = await identifyWithModel(
+        photos,
+        getModelCandidates()[0],
+        "",
+        analysis
+      );
       if (refined.confidence >= analysis.confidence) {
         analysis = refined;
       }
     } catch (err) {
-      console.warn("[AI] Refinement pass failed, using first result:", err);
+      console.warn("[AI] Refinement skipped:", err);
     }
   }
 
@@ -340,16 +423,35 @@ export async function analyzeProductPhotos(
       source: getAnalysisSource(),
       warning:
         analysis.confidence < 65
-          ? "Low confidence — add a photo of the label/tag and edit fields below."
+          ? "Verify the details below — edit anything that looks wrong."
           : analysis.confidence < 80
-            ? "Moderate confidence — verify brand and model before continuing."
+            ? "Moderate confidence — double-check brand and model."
             : undefined,
     };
   } catch (error) {
-    console.error("[AI] Photo analysis failed:", error);
-    throw new Error(
-      "AI could not identify this product. Try a clearer photo with the label or brand visible, then edit the fields manually."
-    );
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error("[AI] Photo analysis failed after all retries:", detail);
+
+    // Last resort: return editable placeholder instead of blocking the user
+    return {
+      analysis: {
+        product: "Could not auto-identify — edit this",
+        brand: "Unknown",
+        model: "Not visible",
+        color: "Unknown",
+        condition: "Good",
+        category: "General",
+        confidence: 20,
+        itemSpecifics: { Condition: "Good" },
+        identificationNotes: `AI analysis hit an error (${detail.slice(0, 120)}). The photos uploaded fine — please fill in the product details manually.`,
+        conditionNotes: "Review photos and set condition manually.",
+        searchQuery: "",
+        visibleText: [],
+      },
+      source: getAnalysisSource(),
+      warning:
+        "AI had a technical issue but your photos are saved. Fill in the product details below and continue.",
+    };
   }
 }
 

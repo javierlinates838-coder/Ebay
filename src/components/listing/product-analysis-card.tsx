@@ -62,7 +62,7 @@ export function ProductAnalysisCard({
               )}
               {source === "gemini" && (
                 <Badge variant="outline" className="text-xs text-[#0064D2]">
-                  Gemini Pro Vision
+                  Gemini Vision
                 </Badge>
               )}
               <Badge variant="secondary" className="font-mono">
