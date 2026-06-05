@@ -69,7 +69,7 @@ export function ProductAnalysisCard({
               )}
               {source === "gemini" && (
                 <Badge variant="outline" className="text-xs text-[#0064D2]">
-                  Gemini Pro Vision
+                  Gemini Vision
                 </Badge>
               )}
               <Badge variant="secondary" className="font-mono">
@@ -248,8 +248,8 @@ export function ProductAnalysisCard({
         {editable && (
           <CardContent className="border-t pt-4">
             <p className="text-xs text-muted-foreground">
-              Multi-phase AI: category scout → tag OCR → expert identification. Include tag and
-              logo photos for best results. Wrong item? Edit the fields above.
+              Tip: include close-ups of brand tags, tongues, and model labels. Wrong item? Edit
+              the fields above.
             </p>
           </CardContent>
         )}
