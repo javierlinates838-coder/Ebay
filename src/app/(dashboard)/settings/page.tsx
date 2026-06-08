@@ -1,9 +1,10 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ExternalLink, Link2, CheckCircle2, AlertCircle } from "lucide-react";
+import { ExternalLink, Link2, CheckCircle2, AlertCircle, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import type { AIHealthResult } from "@/lib/ai/health-check";
 import { AppHeader } from "@/components/layout/app-nav";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,13 +40,38 @@ function SettingsContent() {
   const [connecting, setConnecting] = useState(false);
   const connected = searchParams.get("ebay_connected") === "true";
   const [config, setConfig] = useState<AppConfig | null>(null);
+  const [health, setHealth] = useState<AIHealthResult | null>(null);
+  const [testingAi, setTestingAi] = useState(false);
+
+  const testAiConnection = useCallback(async () => {
+    setTestingAi(true);
+    try {
+      const res = await fetch("/api/ai/health");
+      const data: AIHealthResult = await res.json();
+      setHealth(data);
+      if (data.ok && data.googleSearch) {
+        toast.success(`AI ready (${data.latencyMs}ms) — Gemini + Google Search`);
+      } else if (data.ok) {
+        toast.warning("Gemini works but Google Search is off — enable billing for Lens-style ID");
+      } else {
+        toast.error(data.fix || data.error || "Connection failed");
+      }
+    } catch {
+      toast.error("Health check failed");
+    } finally {
+      setTestingAi(false);
+    }
+  }, []);
 
   useEffect(() => {
     fetch("/api/config")
       .then((res) => res.json())
-      .then(setConfig)
+      .then((c) => {
+        setConfig(c);
+        if (c.ai) testAiConnection();
+      })
       .catch(() => setConfig(null));
-  }, []);
+  }, [testAiConnection]);
 
   useEffect(() => {
     if (toastShown.current) return;
@@ -132,12 +158,95 @@ function SettingsContent() {
           )}
 
           {config?.ai && config.aiProvider && (
-            <Alert>
+            <Alert className={health?.ok ? "border-green-500/30 bg-green-500/5" : undefined}>
               <AlertDescription>
-                AI is active via {config.aiProvider === "gemini" ? "Google Gemini" : "OpenAI"}.
+                {health?.ok && health.googleSearch ? (
+                  <>
+                    <strong>AI fully ready</strong> — Gemini + Google Search (Lens-style). Model:{" "}
+                    {health.model}
+                    {health.latencyMs ? ` (${health.latencyMs}ms)` : ""}
+                  </>
+                ) : health?.ok ? (
+                  <>
+                    Gemini connected but Google Search grounding failed. Photo ID uses vision-only.
+                    {health.fix && <> {health.fix}</>}
+                  </>
+                ) : (
+                  <>
+                    AI key detected via {config.aiProvider === "gemini" ? "Google Gemini" : "OpenAI"}.
+                    {health?.fix && <> {health.fix}</>}
+                  </>
+                )}
               </AlertDescription>
             </Alert>
           )}
+
+          <Card className="border-0 shadow-lg">
+            <CardHeader>
+              <CardTitle>AI Photo Analysis</CardTitle>
+              <CardDescription>
+                Required for product identification. Uses Google Search + Vision (like Google Lens).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-xl border bg-muted/30 p-4 text-sm">
+                <p className="font-medium">Setup (one time)</p>
+                <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-muted-foreground">
+                  <li>
+                    Get a key at{" "}
+                    <a
+                      href="https://aistudio.google.com/apikey"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#0064D2] hover:underline"
+                    >
+                      Google AI Studio
+                    </a>
+                  </li>
+                  <li>Vercel → Settings → Environment Variables → <code>GEMINI_API_KEY</code></li>
+                  <li>Redeploy the project</li>
+                  <li>Click Test below — both Gemini and Google Search should pass</li>
+                </ol>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  onClick={testAiConnection}
+                  disabled={testingAi || !config?.gemini}
+                  className="rounded-xl"
+                >
+                  {testingAi ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                  )}
+                  Test AI connection
+                </Button>
+                {health?.textPing && (
+                  <Badge variant="outline" className="text-green-600">
+                    <CheckCircle2 className="mr-1 h-3 w-3" />
+                    Gemini OK
+                  </Badge>
+                )}
+                {health?.googleSearch && (
+                  <Badge variant="outline" className="text-green-600">
+                    <CheckCircle2 className="mr-1 h-3 w-3" />
+                    Google Search OK
+                  </Badge>
+                )}
+                {health && !health.ok && (
+                  <Badge variant="outline" className="text-destructive">
+                    <AlertCircle className="mr-1 h-3 w-3" />
+                    Failed
+                  </Badge>
+                )}
+              </div>
+
+              {health?.error && !health.ok && (
+                <p className="text-xs text-destructive">{health.error}</p>
+              )}
+            </CardContent>
+          </Card>
 
           <Card className="border-0 shadow-lg">
             <CardHeader>
