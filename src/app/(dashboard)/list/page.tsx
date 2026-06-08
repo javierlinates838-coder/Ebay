@@ -18,6 +18,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PhotoUpload } from "@/components/listing/photo-upload";
+import { AnalysisPhotoTips } from "@/components/listing/analysis-photo-tips";
 import { ProductAnalysisCard } from "@/components/listing/product-analysis-card";
 import { MarketResearchCard } from "@/components/listing/market-research-card";
 import { ListingPreview } from "@/components/listing/listing-preview";
@@ -283,6 +284,7 @@ function NewListingContent() {
                     real products online. Include brand tags and model labels for best results.
                   </p>
                 </div>
+                <AnalysisPhotoTips />
                 <PhotoUpload
                   photos={state.photos}
                   enhancedPhotos={state.enhancedPhotos}

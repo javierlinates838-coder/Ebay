@@ -5,6 +5,9 @@
     "src/app/api/ai/analyze-photos/route.ts": {
       "maxDuration": 120
     },
+    "src/app/api/ai/health/route.ts": {
+      "maxDuration": 45
+    },
     "src/app/api/ai/generate-listing/route.ts": {
       "maxDuration": 60
     }
