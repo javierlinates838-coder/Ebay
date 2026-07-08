@@ -16,6 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { LogoMark } from "@/components/brand/logo";
 
 const NAV = [
   { href: "/bible", label: "Read", icon: BookOpenText },
@@ -35,12 +36,10 @@ export function SiteHeader() {
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-2 px-4">
         <Link
           href="/"
-          className="flex items-center gap-2 rounded-lg font-heading text-lg font-semibold tracking-tight outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="flex items-center gap-2 rounded-lg font-heading text-xl font-semibold tracking-tight outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           onClick={() => setOpen(false)}
         >
-          <span className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <BookOpenText className="size-4" />
-          </span>
+          <LogoMark id="logo-header" className="size-8" />
           Logos
         </Link>
 

@@ -17,6 +17,7 @@ import { PLANS } from "@/lib/bible/plans";
 import { QUIZ_QUESTIONS } from "@/lib/bible/quiz";
 import { VerseOfDay } from "@/components/home/verse-of-day";
 import { ContinueReading } from "@/components/home/continue-reading";
+import { LogoMark, Ornament } from "@/components/brand/logo";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -81,19 +82,31 @@ export default function HomePage() {
   const chapterCount = BOOKS.reduce((sum, b) => sum + b.chapters, 0);
 
   return (
-    <div className="mx-auto max-w-6xl px-4">
-      <section className="flex flex-col items-center gap-6 py-16 text-center sm:py-24">
-        <h1 className="max-w-3xl font-heading text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
-          Study the Bible like never before
-        </h1>
-        <p className="max-w-2xl text-lg text-muted-foreground text-balance">
-          {BOOKS.length} books. {chapterCount.toLocaleString()} chapters.{" "}
-          {TRANSLATIONS.length} translations. Original-language word study,
-          reading plans, memorization, and quizzes — beautifully in one place,
-          free forever.
-        </p>
-        <ContinueReading />
-      </section>
+    <div className="relative">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[34rem] overflow-hidden"
+      >
+        <div className="absolute top-[-12rem] left-1/2 h-[26rem] w-[42rem] -translate-x-1/2 rounded-full bg-primary/15 blur-3xl" />
+        <div className="absolute top-[-4rem] left-[12%] h-56 w-56 rounded-full bg-amber-500/10 blur-3xl" />
+        <div className="absolute top-[2rem] right-[10%] h-64 w-64 rounded-full bg-orange-400/10 blur-3xl" />
+      </div>
+
+      <div className="mx-auto max-w-6xl px-4">
+        <section className="flex flex-col items-center gap-6 py-14 text-center sm:py-20">
+          <LogoMark id="logo-hero" className="size-16 drop-shadow-[0_6px_18px_rgba(201,145,59,0.4)] sm:size-20" />
+          <h1 className="max-w-3xl font-heading text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
+            Study the Bible like never before
+          </h1>
+          <p className="max-w-2xl text-lg text-muted-foreground text-balance">
+            {BOOKS.length} books. {chapterCount.toLocaleString()} chapters.{" "}
+            {TRANSLATIONS.length} translations. Original-language word study,
+            voice reading, plans, memorization, and quizzes — beautifully in
+            one place, free forever.
+          </p>
+          <ContinueReading />
+          <Ornament className="mt-2" />
+        </section>
 
       <section className="pb-12">
         <Suspense fallback={<Skeleton className="h-52 w-full rounded-xl" />}>
@@ -145,6 +158,7 @@ export default function HomePage() {
           </CardContent>
         </Card>
       </section>
+      </div>
     </div>
   );
 }
