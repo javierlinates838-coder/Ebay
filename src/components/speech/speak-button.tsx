@@ -7,16 +7,18 @@ import { Button } from "@/components/ui/button";
 /** One-shot "read this aloud" button for a single passage of text. */
 export function SpeakButton({
   text,
+  lang = "en",
   label = "Listen",
   variant = "outline",
   size = "sm",
 }: {
   text: string;
+  lang?: string;
   label?: string;
   variant?: "outline" | "ghost" | "secondary";
   size?: "sm" | "xs" | "default";
 }) {
-  const speech = useSpeech();
+  const speech = useSpeech(lang);
   if (!speech.supported) return null;
 
   const active = speech.status !== "idle";

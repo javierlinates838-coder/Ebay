@@ -5,6 +5,7 @@ import { AppToaster } from "@/components/providers/app-toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SiteHeader } from "@/components/layout/site-header";
 import { SiteFooter } from "@/components/layout/site-footer";
+import { getSiteUrl } from "@/lib/site";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -24,22 +25,41 @@ const lora = Lora({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(getSiteUrl()),
   title: {
     default: "Logos — Advanced Bible Study",
     template: "%s · Logos Bible",
   },
   description:
-    "Read, search, and study all 66 books of the Bible with word-by-word Greek & Hebrew lexicon, translation comparison, reading plans, memorization trainer, quizzes, highlights, and notes.",
+    "Read, listen to, search, and study all 66 books of the Bible in 29 translations across 18 languages — with word-by-word Greek & Hebrew lexicon, translation comparison, reading plans, memorization trainer, quizzes, highlights, and notes.",
   keywords: [
     "Bible",
     "Bible study",
     "Scripture",
+    "audio Bible",
     "reading plan",
     "Greek",
     "Hebrew",
     "Strong's concordance",
     "memorize Bible verses",
+    "Biblia",
+    "Bibel",
+    "聖經",
+    "Библия",
   ],
+  applicationName: "Logos Bible",
+};
+
+const JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  name: "Logos — Advanced Bible Study",
+  url: getSiteUrl(),
+  applicationCategory: "EducationalApplication",
+  operatingSystem: "Web",
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  description:
+    "Read, listen to, search, and study the Bible in 29 translations across 18 languages with Greek & Hebrew word study, reading plans, memorization, and quizzes.",
 };
 
 export default function RootLayout({
@@ -54,6 +74,10 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${lora.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }}
+        />
         <ThemeProvider>
           <TooltipProvider>
             <SiteHeader />

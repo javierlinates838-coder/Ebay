@@ -61,8 +61,18 @@ interface VerseListProps {
   /** "H" for Hebrew (OT), "G" for Greek (NT) */
   strongsPrefix: "H" | "G";
   hasStrongs: boolean;
+  /** BCP-47 language of the translation, for lang attributes and speech */
+  lang: string;
+  rtl: boolean;
   verses: VerseData[];
 }
+
+const FONT_SIZES = [
+  { size: "0.95rem", line: "1.7rem" },
+  { size: "1.075rem", line: "2rem" },
+  { size: "1.22rem", line: "2.25rem" },
+  { size: "1.4rem", line: "2.55rem" },
+];
 
 const HIGHLIGHT_COLORS: { color: HighlightColor; className: string; swatch: string }[] = [
   { color: "amber", className: "hl-amber", swatch: "bg-amber-400" },
@@ -79,6 +89,8 @@ export function VerseList({
   chapter,
   strongsPrefix,
   hasStrongs,
+  lang,
+  rtl,
   verses,
 }: VerseListProps) {
   const [selected, setSelected] = useState<number | null>(null);
@@ -89,8 +101,27 @@ export function VerseList({
   const [noteVerse, setNoteVerse] = useState<number | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [flashVerse, setFlashVerse] = useState<number | null>(null);
-  const speech = useSpeech();
+  const [fontScale, setFontScale] = useState(1);
+  const speech = useSpeech(lang);
   const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const restore = () => {
+      const stored = Number(window.localStorage.getItem("logos.fontScale"));
+      if (Number.isInteger(stored) && stored >= 0 && stored < FONT_SIZES.length) {
+        setFontScale(stored);
+      }
+    };
+    restore();
+  }, []);
+
+  const adjustFont = (delta: number) => {
+    setFontScale((current) => {
+      const next = Math.min(Math.max(current + delta, 0), FONT_SIZES.length - 1);
+      window.localStorage.setItem("logos.fontScale", String(next));
+      return next;
+    });
+  };
 
   // Verses stream in after the page shell loads, so the browser's native
   // anchor scrolling misses #v<n> links. Scroll manually and flash the verse.
@@ -189,9 +220,34 @@ export function VerseList({
             </Label>
           </div>
         )}
+        <div className="ml-auto flex items-center gap-1" role="group" aria-label="Text size">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Smaller text"
+            disabled={fontScale === 0}
+            onClick={() => adjustFont(-1)}
+          >
+            <span className="text-xs font-semibold">A−</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Larger text"
+            disabled={fontScale === FONT_SIZES.length - 1}
+            onClick={() => adjustFont(1)}
+          >
+            <span className="text-base font-semibold">A+</span>
+          </Button>
+        </div>
       </div>
 
-      <div className="scripture flex flex-col">
+      <div
+        className="scripture flex flex-col"
+        lang={lang}
+        dir={rtl ? "rtl" : "ltr"}
+        style={{ fontSize: FONT_SIZES[fontScale].size, lineHeight: FONT_SIZES[fontScale].line }}
+      >
         {verses.map((v, verseIdx) => {
           const key = verseKey(bookId, chapter, v.verse);
           const hl = highlights[key];
@@ -236,7 +292,11 @@ export function VerseList({
               </p>
 
               {isSelected && (
-                <div className="mx-2 mb-2 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 font-sans shadow-sm">
+                <div
+                  dir="ltr"
+                  className="mx-2 mb-2 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 font-sans text-base shadow-sm"
+                  style={{ fontSize: "0.875rem", lineHeight: "1.25rem" }}
+                >
                   <div className="flex items-center gap-1">
                     {HIGHLIGHT_COLORS.map((c) => (
                       <button

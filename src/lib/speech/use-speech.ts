@@ -14,21 +14,26 @@ export function useSpeechSupported(): boolean {
   );
 }
 
-/** English-first voice list, loaded when the browser makes them available. */
-export function useVoices(): SpeechSynthesisVoice[] {
+/**
+ * Voice list preferring the requested language (BCP-47 prefix match, default
+ * English), loaded when the browser makes them available.
+ */
+export function useVoices(lang = "en"): SpeechSynthesisVoice[] {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     const load = () => {
       const all = window.speechSynthesis.getVoices();
-      const english = all.filter((v) => v.lang.toLowerCase().startsWith("en"));
-      setVoices(english.length > 0 ? english : all);
+      const matching = all.filter((v) =>
+        v.lang.toLowerCase().startsWith(lang.toLowerCase())
+      );
+      setVoices(matching.length > 0 ? matching : all);
     };
     load();
     window.speechSynthesis.addEventListener("voiceschanged", load);
     return () => window.speechSynthesis.removeEventListener("voiceschanged", load);
-  }, []);
+  }, [lang]);
 
   return voices;
 }
@@ -53,11 +58,12 @@ export interface SpeechController {
 /**
  * Sequential text-to-speech over a queue of texts (one utterance per verse),
  * built on the browser SpeechSynthesis API. Voice and rate changes restart
- * the current item so they take effect immediately.
+ * the current item so they take effect immediately. Pass the content's
+ * BCP-47 language so the browser picks a matching voice.
  */
-export function useSpeech(): SpeechController {
+export function useSpeech(lang = "en"): SpeechController {
   const supported = useSpeechSupported();
-  const voices = useVoices();
+  const voices = useVoices(lang);
   const [status, setStatus] = useState<SpeechStatus>("idle");
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
   const [voiceURI, setVoiceURIState] = useState<string | null>(null);
@@ -71,12 +77,14 @@ export function useSpeech(): SpeechController {
   const voiceURIRef = useRef<string | null>(null);
   const rateRef = useRef(1);
   const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
+  const langRef = useRef(lang);
   // Utterance callbacks fire between renders; they re-enter through this ref.
   const speakAtRef = useRef<(index: number) => void>(() => {});
 
   useEffect(() => {
     voicesRef.current = voices;
-  }, [voices]);
+    langRef.current = lang;
+  }, [voices, lang]);
 
   const speakAt = useCallback((index: number) => {
     const synth = window.speechSynthesis;
@@ -93,6 +101,7 @@ export function useSpeech(): SpeechController {
 
     const utterance = new SpeechSynthesisUtterance(queueRef.current[index]);
     utterance.rate = rateRef.current;
+    utterance.lang = langRef.current;
     const voice = voicesRef.current.find((v) => v.voiceURI === voiceURIRef.current);
     if (voice) utterance.voice = voice;
     utterance.onend = () => {

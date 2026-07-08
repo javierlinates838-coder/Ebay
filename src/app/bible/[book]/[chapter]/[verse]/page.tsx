@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Languages } from "lucide-react";
 import { getBookBySlug, type Book } from "@/lib/bible/books";
 import { getParallelVerses, getChapter } from "@/lib/bible/api";
-import { TRANSLATIONS } from "@/lib/bible/translations";
+import { LANGUAGE_COUNT, TRANSLATIONS } from "@/lib/bible/translations";
 import { parseVerseText, plainVerseText } from "@/lib/bible/parse";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -29,20 +29,54 @@ export async function generateMetadata({
   };
 }
 
+interface CompareRow {
+  code: string;
+  name: string;
+  language: string;
+  lang: string;
+  rtl: boolean;
+  text: string;
+}
+
+async function fetchRows(
+  translations: typeof TRANSLATIONS,
+  bookId: number,
+  chapter: number,
+  verse: number
+): Promise<CompareRow[]> {
+  const codes = translations.map((t) => t.code);
+  const result = await getParallelVerses(codes, bookId, chapter, [verse]);
+  return result
+    .map((verses, i) => ({
+      code: codes[i],
+      name: translations[i].name,
+      language: translations[i].language,
+      lang: translations[i].lang,
+      rtl: translations[i].rtl ?? false,
+      // Translations that don't contain this verse (e.g. Hebrew OT text for
+      // a NT reference) come back without a text field.
+      text: verses[0]?.text ? plainVerseText(verses[0].text) : "",
+    }))
+    .filter((r) => r.text);
+}
+
 async function Comparison({ book, chapter, verse }: { book: Book; chapter: number; verse: number }) {
-  const codes = TRANSLATIONS.map((t) => t.code);
-  let rows: { code: string; name: string; text: string }[] = [];
+  let rows: CompareRow[] = [];
   try {
-    const result = await getParallelVerses(codes, book.id, chapter, [verse]);
-    rows = result
-      .map((verses, i) => ({
-        code: codes[i],
-        name: TRANSLATIONS[i].name,
-        text: verses[0] ? plainVerseText(verses[0].text) : "",
-      }))
-      .filter((r) => r.text);
+    rows = await fetchRows(TRANSLATIONS, book.id, chapter, verse);
   } catch {
-    rows = [];
+    // Full multilingual batch failed — retry with the English translations
+    // so the page still teaches something rather than nothing.
+    try {
+      rows = await fetchRows(
+        TRANSLATIONS.filter((t) => t.lang === "en"),
+        book.id,
+        chapter,
+        verse
+      );
+    } catch {
+      rows = [];
+    }
   }
 
   if (rows.length === 0) {
@@ -53,21 +87,38 @@ async function Comparison({ book, chapter, verse }: { book: Book; chapter: numbe
     );
   }
 
+  // Preserve TRANSLATIONS order while grouping rows under language headings.
+  const groups: { language: string; rows: CompareRow[] }[] = [];
+  for (const row of rows) {
+    const group = groups.find((g) => g.language === row.language);
+    if (group) group.rows.push(row);
+    else groups.push({ language: row.language, rows: [row] });
+  }
+
   return (
-    <div className="flex flex-col gap-3">
-      {rows.map((row) => (
-        <Card key={row.code} size="sm">
-          <CardContent className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary">{row.code}</Badge>
-              <span className="text-xs text-muted-foreground">{row.name}</span>
-              <span className="ml-auto">
-                <SpeakButton text={row.text} variant="ghost" size="xs" />
-              </span>
-            </div>
-            <p className="scripture">{row.text}</p>
-          </CardContent>
-        </Card>
+    <div className="flex flex-col gap-6">
+      {groups.map((group) => (
+        <div key={group.language} className="flex flex-col gap-3">
+          <h2 className="font-heading text-sm font-semibold tracking-wide text-muted-foreground uppercase">
+            {group.language}
+          </h2>
+          {group.rows.map((row) => (
+            <Card key={row.code} size="sm">
+              <CardContent className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">{row.code}</Badge>
+                  <span className="truncate text-xs text-muted-foreground">{row.name}</span>
+                  <span className="ml-auto">
+                    <SpeakButton text={row.text} lang={row.lang} variant="ghost" size="xs" />
+                  </span>
+                </div>
+                <p className="scripture" lang={row.lang} dir={row.rtl ? "rtl" : "ltr"}>
+                  {row.text}
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       ))}
     </div>
   );
@@ -156,8 +207,9 @@ export default async function VersePage({
           {book.name} {chapter}:{verse}
         </h1>
         <p className="mt-1 text-muted-foreground">
-          Side-by-side in {TRANSLATIONS.length} translations, with
-          original-language word study.
+          Side-by-side in {TRANSLATIONS.length} translations across{" "}
+          {LANGUAGE_COUNT} languages — including the original Hebrew and Greek —
+          with word-by-word study.
         </p>
       </div>
 
