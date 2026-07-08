@@ -73,7 +73,17 @@ export default async function BookPage({ params }: PageProps<"/bible/[book]">) {
   if (!book) notFound();
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-10">
+    <div className="relative mx-auto max-w-4xl px-4 py-10">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-72 overflow-hidden"
+      >
+        <div className="absolute top-[-8rem] left-1/2 h-64 w-[36rem] -translate-x-1/2 rounded-full bg-primary/12 blur-3xl" />
+        <span className="absolute top-2 right-0 font-heading text-[9rem] leading-none font-semibold text-primary/8 select-none sm:text-[12rem]">
+          {book.abbr}
+        </span>
+      </div>
+
       <Link
         href="/bible"
         className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
