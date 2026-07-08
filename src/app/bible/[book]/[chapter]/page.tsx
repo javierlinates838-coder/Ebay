@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { getBookBySlug } from "@/lib/bible/books";
 import { DEFAULT_TRANSLATION, isValidTranslation } from "@/lib/bible/translations";
 import { ChapterReader } from "@/components/reader/chapter-reader";
+import { ReadingProgress } from "@/components/reader/reading-progress";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function generateStaticParams() {
@@ -96,6 +97,7 @@ export default function ChapterPage({
 }: PageProps<"/bible/[book]/[chapter]">) {
   return (
     <div className="mx-auto max-w-3xl px-4 py-10">
+      <ReadingProgress />
       <Suspense fallback={<Skeleton className="mb-6 h-14 w-56" />}>
         <ChapterHeading params={params} />
       </Suspense>

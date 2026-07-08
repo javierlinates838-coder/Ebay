@@ -88,8 +88,23 @@ export function VerseList({
   const [noted, setNoted] = useState<Set<string>>(new Set());
   const [noteVerse, setNoteVerse] = useState<number | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const [flashVerse, setFlashVerse] = useState<number | null>(null);
   const speech = useSpeech();
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Verses stream in after the page shell loads, so the browser's native
+  // anchor scrolling misses #v<n> links. Scroll manually and flash the verse.
+  useEffect(() => {
+    const match = /^#v(\d+)$/.exec(window.location.hash);
+    if (!match) return;
+    const verse = Number(match[1]);
+    const el = listRef.current?.querySelector(`#v${verse}`);
+    if (!el) return;
+    el.scrollIntoView({ block: "center" });
+    setFlashVerse(verse);
+    const timer = setTimeout(() => setFlashVerse(null), 2200);
+    return () => clearTimeout(timer);
+  }, []);
 
   const speakingVerse =
     speech.currentIndex !== null ? verses[speech.currentIndex]?.verse : null;
@@ -177,7 +192,7 @@ export function VerseList({
       </div>
 
       <div className="scripture flex flex-col">
-        {verses.map((v) => {
+        {verses.map((v, verseIdx) => {
           const key = verseKey(bookId, chapter, v.verse);
           const hl = highlights[key];
           const hlClass = hl
@@ -190,13 +205,23 @@ export function VerseList({
               <p
                 onClick={() => setSelected(isSelected ? null : v.verse)}
                 className={cn(
-                  "cursor-pointer rounded-md px-2 py-1 transition-colors hover:bg-muted/60",
+                  "cursor-pointer rounded-md px-2 py-1 transition-colors duration-700 hover:bg-muted/60",
                   hlClass,
                   isSelected && "ring-2 ring-primary/40",
-                  speakingVerse === v.verse && "bg-accent/70 ring-2 ring-primary/60"
+                  speakingVerse === v.verse && "bg-accent/70 ring-2 ring-primary/60",
+                  flashVerse === v.verse && "bg-primary/15 ring-2 ring-primary/50"
                 )}
               >
-                <span className="verse-num">{v.verse}</span>
+                {verseIdx === 0 ? (
+                  <span
+                    aria-hidden
+                    className="float-left mt-1.5 mr-2.5 font-heading text-[3.1rem] leading-[0.78] font-semibold text-primary select-none"
+                  >
+                    {chapter}
+                  </span>
+                ) : (
+                  <span className="verse-num">{v.verse}</span>
+                )}
                 <VerseText
                   segments={v.segments}
                   wordStudy={wordStudy}

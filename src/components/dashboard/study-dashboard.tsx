@@ -30,6 +30,7 @@ import {
 } from "@/lib/study/storage";
 import { cn } from "@/lib/utils";
 import { DataBackup } from "@/components/dashboard/data-backup";
+import { StreakCalendar } from "@/components/dashboard/streak-calendar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -49,6 +50,7 @@ interface DashboardData {
   notes: Note[];
   streak: number;
   daysRead: number;
+  readingDays: string[];
   chaptersRead: number;
   plans: { id: string; name: string; done: number; total: number }[];
 }
@@ -65,6 +67,7 @@ export function StudyDashboard() {
         notes: Object.values(getNotes()).sort((a, b) => b.updatedAt - a.updatedAt),
         streak: currentStreak(days),
         daysRead: days.length,
+        readingDays: days,
         chaptersRead: Object.keys(getChaptersRead()).length,
         plans: PLANS.map((p) => ({
           id: p.id,
@@ -120,6 +123,8 @@ export function StudyDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      <StreakCalendar days={data.readingDays} />
 
       {data.plans.length > 0 && (
         <Card>
