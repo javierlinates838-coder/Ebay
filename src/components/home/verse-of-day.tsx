@@ -6,6 +6,7 @@ import { verseForDay } from "@/lib/bible/daily-verses";
 import { plainVerseText } from "@/lib/bible/parse";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { SpeakButton } from "@/components/speech/speak-button";
 
 export async function VerseOfDay() {
   "use cache";
@@ -31,12 +32,15 @@ export async function VerseOfDay() {
         <blockquote className="scripture text-xl leading-9 sm:text-2xl sm:leading-10">
           &ldquo;{text}&rdquo;
         </blockquote>
-        <Link
-          href={`/bible/${ref.bookSlug}/${ref.chapter}#v${ref.verse}`}
-          className="font-heading text-sm font-semibold text-primary hover:underline"
-        >
-          {ref.ref} — Read in context →
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href={`/bible/${ref.bookSlug}/${ref.chapter}#v${ref.verse}`}
+            className="font-heading text-sm font-semibold text-primary hover:underline"
+          >
+            {ref.ref} — Read in context →
+          </Link>
+          <SpeakButton text={`${ref.ref}. ${text}`} size="xs" variant="ghost" />
+        </div>
       </CardContent>
     </Card>
   );

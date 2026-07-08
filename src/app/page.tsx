@@ -6,6 +6,7 @@ import {
   CalendarCheck,
   Brain,
   GraduationCap,
+  Headphones,
   Languages,
   Highlighter,
   Columns2,
@@ -39,6 +40,12 @@ const FEATURES = [
     href: "/bible/john/3/16",
   },
   {
+    icon: Headphones,
+    title: "Voice reader",
+    description: "Listen to any chapter read aloud with verse-by-verse follow-along, speed control, and your choice of voice.",
+    href: "/bible/psalms/23",
+  },
+  {
     icon: Search,
     title: "Powerful search",
     description: "Full-text search across the whole Bible with exact-match ranking and highlighted results.",
@@ -65,7 +72,7 @@ const FEATURES = [
   {
     icon: Highlighter,
     title: "Highlights, notes & streaks",
-    description: "Five highlight colors, verse notes, bookmarks, and a reading streak — all saved privately on your device.",
+    description: "Five highlight colors, verse notes, bookmarks, and a reading streak — auto-saved privately, with backup export/import.",
     href: "/dashboard",
   },
 ];
@@ -98,7 +105,7 @@ export default function HomePage() {
         <h2 className="mb-6 font-heading text-2xl font-semibold tracking-tight">
           Everything you need to go deeper
         </h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => (
             <Link
               key={f.title}

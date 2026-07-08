@@ -8,6 +8,7 @@ import { TRANSLATIONS } from "@/lib/bible/translations";
 import { parseVerseText, plainVerseText } from "@/lib/bible/parse";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { SpeakButton } from "@/components/speech/speak-button";
 
 export function generateStaticParams() {
   return [
@@ -60,6 +61,9 @@ async function Comparison({ book, chapter, verse }: { book: Book; chapter: numbe
             <div className="flex items-center gap-2">
               <Badge variant="secondary">{row.code}</Badge>
               <span className="text-xs text-muted-foreground">{row.name}</span>
+              <span className="ml-auto">
+                <SpeakButton text={row.text} variant="ghost" size="xs" />
+              </span>
             </div>
             <p className="scripture">{row.text}</p>
           </CardContent>

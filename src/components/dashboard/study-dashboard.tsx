@@ -29,6 +29,7 @@ import {
   type Note,
 } from "@/lib/study/storage";
 import { cn } from "@/lib/utils";
+import { DataBackup } from "@/components/dashboard/data-backup";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -273,6 +274,8 @@ export function StudyDashboard() {
           )}
         </TabsContent>
       </Tabs>
+
+      <DataBackup />
     </div>
   );
 }

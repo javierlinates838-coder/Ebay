@@ -12,9 +12,10 @@ A beautiful, fast, and deeply educational Bible study web app. Read, search, and
 - **Reading plans** — 7 curated plans (John in 21 days, Mark, Psalms of Comfort, a month of Proverbs, Romans deep dive, Genesis beginnings, a 30-day Gospel harmony) with day-by-day progress.
 - **Memorization trainer** — 4 verse packs with three modes: read, first-letter prompts, and full typed recall with word-accuracy scoring; verses graduate from *new* to *mastered*.
 - **Quiz** — 48-question bank across easy/medium/hard with explanations and references for every answer, plus lifetime stats.
-- **My Study dashboard** — bookmarks, 5-color highlights, verse notes, chapters-read count, and a daily reading streak. All personal data stays in `localStorage`; nothing leaves the device.
+- **Voice reader** — listen to any chapter read aloud (browser text-to-speech) with verse-by-verse follow-along highlighting, play/pause/skip, 0.8–1.5× speed, and voice selection; "listen from here" on any verse, plus one-tap listen buttons on the verse of the day, verse comparison, and memory verses.
+- **My Study dashboard** — bookmarks, 5-color highlights, verse notes, chapters-read count, and a daily reading streak. All personal data auto-saves to `localStorage`; nothing leaves the device. One-click **backup export/import** (JSON) moves your data between devices, and a guarded reset erases it.
 - **Verse of the day** — rotates daily through 40 beloved verses.
-- Light/dark themes with a warm, scholarly palette; fully responsive.
+- **Three themes** — light, dark, and a dedicated amber-on-black **night reading mode** for low-light study; fully responsive.
 
 ## Tech
 

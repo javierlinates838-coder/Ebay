@@ -230,3 +230,52 @@ export function recordQuizRound(correct: number, answered: number, bestStreak: n
     bestStreak: Math.max(s.bestStreak, bestStreak),
   } satisfies QuizStats);
 }
+
+// ----- Backup: export / import / reset -----
+
+const PREFIX = "logos.";
+
+/** Serialize every piece of study data to a JSON backup string. */
+export function exportStudyData(): string {
+  const data: Record<string, unknown> = {};
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const key = window.localStorage.key(i);
+    if (!key?.startsWith(PREFIX)) continue;
+    try {
+      data[key.slice(PREFIX.length)] = JSON.parse(window.localStorage.getItem(key) ?? "null");
+    } catch {
+      // skip unreadable entries
+    }
+  }
+  return JSON.stringify(
+    { app: "logos-bible", version: 1, exportedAt: new Date().toISOString(), data },
+    null,
+    2
+  );
+}
+
+/** Restore a backup produced by `exportStudyData`. Returns entry count. */
+export function importStudyData(json: string): number {
+  const parsed = JSON.parse(json) as { app?: string; data?: Record<string, unknown> };
+  if (parsed.app !== "logos-bible" || typeof parsed.data !== "object" || !parsed.data) {
+    throw new Error("Not a valid Logos backup file");
+  }
+  let count = 0;
+  for (const [key, value] of Object.entries(parsed.data)) {
+    window.localStorage.setItem(`${PREFIX}${key}`, JSON.stringify(value));
+    count++;
+  }
+  window.dispatchEvent(new Event(STUDY_EVENT));
+  return count;
+}
+
+/** Delete all study data on this device. */
+export function resetStudyData() {
+  const keys: string[] = [];
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const key = window.localStorage.key(i);
+    if (key?.startsWith(PREFIX)) keys.push(key);
+  }
+  keys.forEach((key) => window.localStorage.removeItem(key));
+  window.dispatchEvent(new Event(STUDY_EVENT));
+}

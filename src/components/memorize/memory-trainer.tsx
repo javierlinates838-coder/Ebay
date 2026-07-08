@@ -18,6 +18,7 @@ import {
   type MemoryLevel,
 } from "@/lib/study/storage";
 import { cn } from "@/lib/utils";
+import { SpeakButton } from "@/components/speech/speak-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -126,13 +127,20 @@ export function MemoryTrainer({ pack }: { pack: MemoryPack }) {
             <Badge variant="outline" className={cn("border-0", LEVEL_STYLES[level])}>
               {LEVEL_LABELS[level]}
             </Badge>
-            <Link
-              href={`/bible/${verse.bookSlug}/${verse.chapter}#v${verse.verse}`}
-              className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
-            >
-              <BookOpen className="size-3.5" />
-              In context
-            </Link>
+            <div className="ml-auto flex items-center gap-2">
+              <SpeakButton
+                text={`${verse.ref}. ${verse.text}`}
+                variant="ghost"
+                size="xs"
+              />
+              <Link
+                href={`/bible/${verse.bookSlug}/${verse.chapter}#v${verse.verse}`}
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+              >
+                <BookOpen className="size-3.5" />
+                In context
+              </Link>
+            </div>
           </div>
 
           {mode === "read" && (
