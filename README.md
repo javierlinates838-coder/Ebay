@@ -1,132 +1,42 @@
-# ResellAI — AI-Powered eBay Reseller Assistant
+# Logos — Advanced Bible Study
 
-A production-ready Next.js application that helps eBay resellers list items faster and maximize profits using AI.
+A beautiful, fast, and deeply educational Bible study web app. Read, search, and study all 66 books with original-language word study, translation comparison, guided reading plans, a memorization trainer, quizzes, and private highlights/notes — no account required.
 
 ## Features
 
-- **AI Photo Analysis** — Upload 1-10 photos; AI identifies product, brand, model, color, condition, and category with confidence scores
-- **Market Research** — Search eBay sold listings for average/highest/lowest prices, trends, and suggested pricing
-- **AI Listing Generator** — SEO-optimized titles, descriptions, item specifics, keywords, and shipping suggestions
-- **Photo Enhancer** — Background removal and image enhancement via PhotoRoom API (with client-side fallback)
-- **Profit Calculator** — Sale price, shipping, eBay fees, taxes, net profit, and ROI
-- **Inventory Dashboard** — Store, search, and track listings (Draft, Listed, Sold, Shipped)
-- **One-Click eBay Listing** — OAuth connection and direct publishing to eBay
-- **AI Pricing Engine** — Aggressive, market, and quick-sale pricing with underpriced opportunity detection
-- **Analytics** — Revenue charts, sell-through rate, average profit, top categories
-- **Mobile-First UI** — Apple-inspired design with dark mode and smooth animations
+- **Reader** — every chapter of all 66 books in 8 translations (KJV, WEB, ASV, YLT, LSV, BSB, Geneva 1599, Douay-Rheims), with poetry line breaks, translator footnotes, and clean serif typography.
+- **Word study mode** — in Strong's-tagged translations (KJV, ASV), tap any word to open its full Greek (Thayer) or Hebrew (Brown-Driver-Briggs) lexicon entry with original script, transliteration, and cross-referenced entries.
+- **Verse comparison** — any verse side-by-side across all 8 translations, plus a word-by-word original-language breakdown.
+- **Book overviews** — author, date, genre, themes, summary, and a key verse for every book, with genre-colored library browsing.
+- **Search** — full-text search across 31,000+ verses with exact-match counts and highlighted results.
+- **Reading plans** — 7 curated plans (John in 21 days, Mark, Psalms of Comfort, a month of Proverbs, Romans deep dive, Genesis beginnings, a 30-day Gospel harmony) with day-by-day progress.
+- **Memorization trainer** — 4 verse packs with three modes: read, first-letter prompts, and full typed recall with word-accuracy scoring; verses graduate from *new* to *mastered*.
+- **Quiz** — 48-question bank across easy/medium/hard with explanations and references for every answer, plus lifetime stats.
+- **Voice reader** — listen to any chapter read aloud (browser text-to-speech) with verse-by-verse follow-along highlighting, play/pause/skip, 0.8–1.5× speed, and voice selection; "listen from here" on any verse, plus one-tap listen buttons on the verse of the day, verse comparison, and memory verses.
+- **My Study dashboard** — bookmarks, 5-color highlights, verse notes, chapters-read count, and a daily reading streak. All personal data auto-saves to `localStorage`; nothing leaves the device. One-click **backup export/import** (JSON) moves your data between devices, and a guarded reset erases it.
+- **Verse of the day** — rotates daily through 40 beloved verses.
+- **Three themes** — light, dark, and a dedicated amber-on-black **night reading mode** for low-light study; fully responsive.
 
-## Tech Stack
+## Tech
 
-- **Next.js 16** (App Router, TypeScript)
-- **Tailwind CSS 4** + shadcn/ui
-- **Supabase** (PostgreSQL, Auth, Storage)
-- **Google Gemini** (via Vercel AI SDK) — primary AI provider
-- **OpenAI GPT-4o** (optional alternative)
-- **eBay Developer API** (optional — demo data used without keys)
-- **PhotoRoom API** (background removal)
-- **Vercel** (deployment)
+- **Next.js 16** (App Router, Cache Components / PPR) + React 19 + TypeScript
+- **Tailwind CSS 4** + shadcn-style Base UI components
+- Scripture text and lexicon data fetched from the free [bolls.life](https://bolls.life) Bible API and cached server-side with `use cache`.
 
-## Getting Started
-
-### 1. Install dependencies
+## Getting started
 
 ```bash
 npm install
-```
-
-### 2. Configure environment variables
-
-Copy `.env.example` to `.env.local` and fill in your keys:
-
-```bash
-cp .env.example .env.local
-```
-
-### 3. Set up Supabase
-
-In your [Supabase](https://supabase.com/) project SQL editor, run both migrations:
-
-1. `supabase/migrations/001_initial_schema.sql`
-2. `supabase/migrations/002_remove_auth_user_fk.sql`
-
-### 4. Run development server
-
-```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open http://localhost:3000.
 
-## Environment Variables
+## Scripts
 
-### Recommended setup (Gemini + Supabase, no eBay keys)
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GEMINI_API_KEY` | Yes (for real AI) | Google Gemini key from [AI Studio](https://aistudio.google.com/apikey) |
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes (for cloud inventory) | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon/public key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key (server-only, for saving listings) |
-
-### Optional
-
-| Variable | Description |
-|----------|-------------|
-| `OPENAI_API_KEY` | Alternative to Gemini for AI features |
-| `EBAY_CLIENT_ID` | eBay Developer App ID — skip if you don't have developer access |
-| `EBAY_CLIENT_SECRET` | eBay Developer Cert ID |
-| `EBAY_REDIRECT_URI` | OAuth redirect (e.g. `https://yourapp.vercel.app/api/ebay/callback`) |
-| `EBAY_ENV` | `sandbox` or `production` |
-| `PHOTOROOM_API_KEY` | PhotoRoom background removal |
-
-## Demo Mode
-
-**eBay keys are optional.** Without them, market research and publish use simulated data — you can still list items, run AI analysis, and save inventory.
-
-**For AI:** add `GEMINI_API_KEY` on Vercel for real photo analysis and listing generation.
-
-**For cloud inventory:** add all three Supabase keys and run the SQL migrations.
-
-Check **Settings** in the app to confirm which integrations are active.
-
-## Deploy to Vercel
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/javierlinates838-coder/Ebay)
-
-1. Import the `javierlinates838-coder/Ebay` repository in Vercel.
-2. Vercel auto-detects Next.js — no root directory override needed.
-3. Add environment variables from `.env.example` in the Vercel project settings.
-4. Deploy.
-
-For eBay OAuth, set `EBAY_REDIRECT_URI` to your production URL, for example:
-
-```text
-https://your-project.vercel.app/api/ebay/callback
-```
-
-## Project Structure
-
-```
-src/
-├── app/
-│   ├── (dashboard)/     # Dashboard, list, inventory, analytics, settings
-│   ├── api/             # API routes (AI, eBay, photos, inventory)
-│   └── page.tsx         # Landing page
-├── components/
-│   ├── analytics/
-│   ├── inventory/
-│   ├── layout/
-│   ├── listing/
-│   └── ui/              # shadcn components
-├── hooks/
-├── lib/
-│   ├── ai/
-│   ├── ebay/
-│   ├── photoroom/
-│   └── supabase/
-└── types/
-```
-
-## License
-
-MIT
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start the dev server |
+| `npm run build` | Production build |
+| `npm start` | Serve the production build |
+| `npm run lint` | Run ESLint |
