@@ -4,7 +4,12 @@ import { Suspense } from "react";
 import { SearchIcon } from "lucide-react";
 import { searchBible } from "@/lib/bible/api";
 import { getBookById } from "@/lib/bible/books";
-import { DEFAULT_TRANSLATION, TRANSLATIONS, isValidTranslation } from "@/lib/bible/translations";
+import {
+  DEFAULT_TRANSLATION,
+  TRANSLATION_GROUPS,
+  getTranslation,
+  isValidTranslation,
+} from "@/lib/bible/translations";
 import { plainVerseText } from "@/lib/bible/parse";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -79,10 +84,12 @@ async function Results({ query, translation }: { query: string; translation: str
       {data.results.map((r) => {
         const book = getBookById(r.book);
         if (!book) return null;
+        const info = getTranslation(translation);
+        const suffix = translation === DEFAULT_TRANSLATION ? "" : `?t=${translation}`;
         return (
           <Link
             key={r.pk}
-            href={`/bible/${book.slug}/${r.chapter}#v${r.verse}`}
+            href={`/bible/${book.slug}/${r.chapter}${suffix}#v${r.verse}`}
             className="group rounded-xl outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             <Card size="sm" className="transition-shadow group-hover:shadow-md">
@@ -93,7 +100,11 @@ async function Results({ query, translation }: { query: string; translation: str
                   </span>
                   <Badge variant="secondary">{translation}</Badge>
                 </div>
-                <p className="scripture text-[1rem] leading-7">
+                <p
+                  className="scripture text-[1rem] leading-7"
+                  lang={info.lang}
+                  dir={info.rtl ? "rtl" : "ltr"}
+                >
                   <HighlightedText raw={r.text} />
                 </p>
               </CardContent>
@@ -135,12 +146,16 @@ async function SearchContent({
             name="t"
             defaultValue={translation}
             aria-label="Translation"
-            className="h-10 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+            className="h-10 max-w-52 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
           >
-            {TRANSLATIONS.map((t) => (
-              <option key={t.code} value={t.code}>
-                {t.code} — {t.name}
-              </option>
+            {TRANSLATION_GROUPS.map((group) => (
+              <optgroup key={group.language} label={group.language}>
+                {group.translations.map((t) => (
+                  <option key={t.code} value={t.code}>
+                    {t.code} — {t.name}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
           <Button type="submit" size="lg" className="h-10">

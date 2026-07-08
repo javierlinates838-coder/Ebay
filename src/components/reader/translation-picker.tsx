@@ -1,11 +1,17 @@
 "use client";
 
 import { useRouter, usePathname } from "next/navigation";
-import { TRANSLATIONS, DEFAULT_TRANSLATION } from "@/lib/bible/translations";
+import {
+  TRANSLATIONS,
+  TRANSLATION_GROUPS,
+  DEFAULT_TRANSLATION,
+} from "@/lib/bible/translations";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -27,12 +33,17 @@ export function TranslationPicker({ current }: { current: string }) {
       <SelectTrigger aria-label="Bible translation" className="min-w-24">
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
-        {TRANSLATIONS.map((t) => (
-          <SelectItem key={t.code} value={t.code}>
-            <span className="font-medium">{t.code}</span>
-            <span className="text-muted-foreground">{t.name}</span>
-          </SelectItem>
+      <SelectContent className="max-h-96" alignItemWithTrigger={false}>
+        {TRANSLATION_GROUPS.map((group) => (
+          <SelectGroup key={group.language}>
+            <SelectLabel>{group.language}</SelectLabel>
+            {group.translations.map((t) => (
+              <SelectItem key={t.code} value={t.code}>
+                <span className="font-medium">{t.code}</span>
+                <span className="max-w-48 truncate text-muted-foreground">{t.name}</span>
+              </SelectItem>
+            ))}
+          </SelectGroup>
         ))}
       </SelectContent>
     </Select>

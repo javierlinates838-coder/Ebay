@@ -12,7 +12,7 @@ import {
   Columns2,
 } from "lucide-react";
 import { BOOKS } from "@/lib/bible/books";
-import { TRANSLATIONS } from "@/lib/bible/translations";
+import { LANGUAGE_COUNT, TRANSLATIONS } from "@/lib/bible/translations";
 import { PLANS } from "@/lib/bible/plans";
 import { QUIZ_QUESTIONS } from "@/lib/bible/quiz";
 import { VerseOfDay } from "@/components/home/verse-of-day";
@@ -36,8 +36,8 @@ const FEATURES = [
   },
   {
     icon: Columns2,
-    title: "Compare translations",
-    description: `Read any verse side-by-side across ${TRANSLATIONS.length} translations, from the KJV to modern literal versions.`,
+    title: `${TRANSLATIONS.length} translations, ${LANGUAGE_COUNT} languages`,
+    description: "Read side-by-side in English, Español, Français, Deutsch, 中文, Русский, العربية, and more — including the original Hebrew and Greek.",
     href: "/bible/john/3/16",
   },
   {
@@ -100,9 +100,9 @@ export default function HomePage() {
           </h1>
           <p className="max-w-2xl text-lg text-muted-foreground text-balance">
             {BOOKS.length} books. {chapterCount.toLocaleString()} chapters.{" "}
-            {TRANSLATIONS.length} translations. Original-language word study,
-            voice reading, plans, memorization, and quizzes — beautifully in
-            one place, free forever.
+            {TRANSLATIONS.length} translations in {LANGUAGE_COUNT} languages.
+            Original-language word study, voice reading, plans, memorization,
+            and quizzes — beautifully in one place, free forever.
           </p>
           <ContinueReading />
           <Ornament className="mt-2" />
